@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Whitewall — The wall that lets you through",
+  title: "Whitewall — A billion agents. Every one accountable.",
   description:
-    "On-chain identity and verification for AI agents. Human-accountable. Sybil-proof. Cross-chain.",
+    "License plates for the agentic economy. On-chain identity and verification for AI agents.",
 };
 
 export default function RootLayout({
