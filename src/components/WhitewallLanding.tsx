@@ -1,78 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useRef, useContext } from "react";
 import * as THREE from "three";
+import { themes, ThemeCtx, ThemeToggle, Btn, NavLink, CodeViewer } from "./shared/theme";
+import { useIsMobile, useReveal } from "./shared/hooks";
+import { MeshBG } from "./shared/MeshBG";
+import type { ThemeMode } from "./shared/theme";
 
-// ── Theme system ──
-
-const themes = {
-  dark: {
-    bg: "#0A0A0A",
-    card: "#141414",
-    cardBorder: "#222222",
-    ink: "#EEEEEE",
-    inkMuted: "#666666",
-    blue: "#375BD2",
-    blueDark: "#2A47A8",
-    blueLight: "#5B7BF0",
-    red: "#D94040",
-    green: "#2EAD6B",
-    meshLine: 0xffffff,
-    dust: 0x444444,
-    logoDots: [0.3, 0.6, 0.9],
-    codeBg: "#0D0D0D",
-    codeHeader: "#1A1A1A",
-  },
-  light: {
-    bg: "#FAFAFA",
-    card: "#FFFFFF",
-    cardBorder: "#E0E0E0",
-    ink: "#111111",
-    inkMuted: "#999999",
-    blue: "#375BD2",
-    blueDark: "#2A47A8",
-    blueLight: "#5B7BF0",
-    red: "#D94040",
-    green: "#2EAD6B",
-    meshLine: 0x000000,
-    dust: 0x999999,
-    logoDots: [0.4, 0.6, 0.9],
-    codeBg: "#F0F0F0",
-    codeHeader: "#E8E8E8",
-  },
-};
-
-type ThemeMode = "dark" | "light";
-type Theme = (typeof themes)["dark"];
-
-interface ThemeContextValue {
-  mode: ThemeMode;
-  toggle: () => void;
-  t: Theme;
-}
-
-const ThemeCtx = createContext<ThemeContextValue>({
-  mode: "dark",
-  toggle: () => {},
-  t: themes.dark,
-});
-
-// ── Responsive helper ──
-
-function useIsMobile(breakpoint = 768) {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < breakpoint);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [breakpoint]);
-  return isMobile;
-}
-
-// ── Three.js Mesh Background (fixed, extends behind all content) ──
-
-function MeshBG() {
+/* MeshBG extracted to shared/MeshBG.tsx */
+/* eslint-disable */
+function _MeshBG_REFERENCE_DEAD_CODE() {
   const ref = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: 0, y: 0 });
   const raf = useRef<number>(0);
@@ -323,65 +260,7 @@ function MeshBG() {
   return <canvas ref={ref} style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 0 }} />;
 }
 
-// ── UI components ──
-
-function ThemeToggle() {
-  const { mode, toggle, t } = useContext(ThemeCtx);
-  const [h, setH] = useState(false);
-  return (
-    <button onClick={toggle} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
-      style={{ width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${h ? t.blue : t.cardBorder}`,
-        background: "transparent", cursor: "pointer", display: "flex", alignItems: "center",
-        justifyContent: "center", transition: "all .2s", fontSize: 16, color: t.ink }}>
-      {mode === "dark" ? "\u2600" : "\u263E"}
-    </button>
-  );
-}
-
-function Btn({ children, primary, small, href }: { children: React.ReactNode; primary?: boolean; small?: boolean; href?: string }) {
-  const { t } = useContext(ThemeCtx);
-  const [h, setH] = useState(false);
-  const pad = small ? "8px 18px" : "14px 32px";
-  const fs = small ? 13 : 15;
-  const bw = small ? 1.5 : 2;
-  const base: React.CSSProperties = primary
-    ? { padding: pad, borderRadius: 8, border: `${bw}px solid transparent`, background: h ? t.blueLight : t.blue,
-        color: "#fff", fontSize: fs, fontWeight: 700, cursor: "pointer",
-        transform: h ? "translateY(-1px)" : "none", transition: "all .2s", textDecoration: "none", display: "inline-block" }
-    : { padding: pad, borderRadius: 8, border: `${bw}px solid ${h ? t.ink : t.cardBorder}`,
-        background: "transparent", color: t.ink, fontSize: fs, fontWeight: 700,
-        cursor: "pointer", transition: "all .2s", textDecoration: "none", display: "inline-block" };
-  const Tag = href ? "a" : "button";
-  return (
-    <Tag style={base} href={href} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}>
-      {children}
-    </Tag>
-  );
-}
-
-function NavLink({ children, href }: { children: React.ReactNode; href?: string }) {
-  const { t } = useContext(ThemeCtx);
-  const [h, setH] = useState(false);
-  return (
-    <a href={href || "#"} style={{ color: h ? t.ink : t.inkMuted, textDecoration: "none", fontSize: 14, fontWeight: 600, transition: "color .2s" }}
-      onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}>
-      {children}
-    </a>
-  );
-}
-
-function useReveal(threshold = 0.2): [React.RefObject<HTMLElement | null>, boolean] {
-  const ref = useRef<HTMLElement>(null);
-  const [vis, setVis] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setVis(true); }, { threshold });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [threshold]);
-  return [ref, vis];
-}
+// ── UI components (ThemeToggle, Btn, NavLink, useReveal imported from shared) ──
 
 // ── Problem Section ──
 
@@ -405,11 +284,12 @@ function ProblemSection() {
       style={{ padding: mobile ? "80px 20px" : "120px 48px", maxWidth: 1320, margin: "0 auto" }}>
       <div style={{ opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(24px)", transition: "all .8s cubic-bezier(.16,1,.3,1)" }}>
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: t.blue, textTransform: "uppercase" }}>The Problem</span>
-        <h2 style={{ fontSize: mobile ? 32 : 48, fontWeight: 900, letterSpacing: -2, margin: "16px 0 0", lineHeight: 1.05, textTransform: "uppercase", maxWidth: 640 }}>
+        <h2 style={{ fontSize: mobile ? 32 : 48, fontWeight: 900, letterSpacing: -2, margin: "16px 0 0", lineHeight: 1.05, textTransform: "uppercase" }}>
           Agents act autonomously<span style={{ color: t.blue }}>.</span><br />
           Pay autonomously<span style={{ color: t.blue }}>.</span><br />
           Nobody is accountable<span style={{ color: t.blue }}>.</span>
         </h2>
+
         <p style={{ fontSize: mobile ? 15 : 17, color: t.inkMuted, margin: "20px 0 0", maxWidth: 500, lineHeight: 1.7 }}>
           With x402, any AI agent can autonomously pay for API services —
           content generation, data access, compute. But the protocol only knows{" "}
@@ -455,9 +335,10 @@ function PipelineSection() {
       style={{ padding: mobile ? "80px 20px" : "120px 48px", maxWidth: 1320, margin: "0 auto" }}>
       <div style={{ opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(24px)", transition: "all .8s cubic-bezier(.16,1,.3,1)" }}>
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: t.blue, textTransform: "uppercase" }}>The Pipeline</span>
-        <h2 style={{ fontSize: mobile ? 32 : 48, fontWeight: 900, letterSpacing: -2, margin: "16px 0 0", lineHeight: 1.05, textTransform: "uppercase", maxWidth: 700 }}>
-          5-Gate verification<span style={{ color: t.blue }}>.</span><br />
-          DON consensus<span style={{ color: t.blue }}>.</span> ACE enforcement<span style={{ color: t.blue }}>.</span>
+        <h2 style={{ fontSize: mobile ? 32 : 48, fontWeight: 900, letterSpacing: -2, margin: "16px 0 0", lineHeight: 1.05, textTransform: "uppercase" }}>
+          5-Gate verification with<br />
+          CRE&apos;s DON consensus<span style={{ color: t.blue }}>.</span><br />
+          &amp; ACE enforcement<span style={{ color: t.blue }}>.</span>
         </h2>
         <p style={{ fontSize: mobile ? 15 : 17, color: t.inkMuted, margin: "20px 0 0", maxWidth: 520, lineHeight: 1.7 }}>
           Every request passes through CRE&apos;s 5-Gate pipeline. DON nodes sign the report. ACE enforces on-chain — even if CRE is compromised.
@@ -494,10 +375,10 @@ interface CodeBlock {
 const solidityCode: CodeBlock = {
   file: "MyDeFi.sol",
   lines: [
-    { text: "// Protect your dApp with Whitewall", color: "muted" },
-    { text: "contract MyDeFi is AuthOSGuard {", color: "keyword" },
-    { text: "    constructor(address authOS_)", color: "default" },
-    { text: "        AuthOSGuard(authOS_) {}", color: "default" },
+    { text: "// Protect your dApp with Whitewall OS", color: "muted" },
+    { text: "contract MyDeFi is WhitewallOSGuard {", color: "keyword" },
+    { text: "    constructor(address whitewallOS_)", color: "default" },
+    { text: "        WhitewallOSGuard(whitewallOS_) {}", color: "default" },
     { text: "" },
     { text: "    function withdraw(uint256 amt)", color: "default" },
     { text: "        external", color: "keyword" },
@@ -513,13 +394,13 @@ const appCode: Record<AppLang, CodeBlock> = {
   typescript: {
     file: "verify.ts",
     lines: [
-      { text: 'import { AuthOS } from "@authos/sdk";', color: "keyword" },
+      { text: 'import { WhitewallOS } from "@whitewall-os/sdk";', color: "keyword" },
       { text: "" },
-      { text: "const authos = await AuthOS.connect({", color: "default" },
+      { text: "const wos = await WhitewallOS.connect({", color: "default" },
       { text: '    chain: "baseSepolia",', color: "string" },
       { text: "});", color: "default" },
       { text: "" },
-      { text: "const status = await authos.getAgentStatus(", color: "default" },
+      { text: "const status = await wos.getAgentStatus(", color: "default" },
       { text: "    agentId", color: "blue" },
       { text: ");", color: "default" },
       { text: "" },
@@ -531,10 +412,10 @@ const appCode: Record<AppLang, CodeBlock> = {
   go: {
     file: "verify.go",
     lines: [
-      { text: 'import "github.com/authos/sdk-go"', color: "keyword" },
+      { text: 'import "github.com/whitewall-os/sdk-go"', color: "keyword" },
       { text: "" },
-      { text: "client, err := authos.Connect(", color: "default" },
-      { text: '    authos.BaseSepolia,', color: "string" },
+      { text: "client, err := whitewallOS.Connect(", color: "default" },
+      { text: '    whitewallOS.BaseSepolia,', color: "string" },
       { text: ")", color: "default" },
       { text: "" },
       { text: "status, err := client.GetAgentStatus(", color: "default" },
@@ -553,14 +434,14 @@ const mcpConfig: CodeBlock = {
   lines: [
     { text: "{", color: "default" },
     { text: '  "mcpServers": {', color: "blue" },
-    { text: '    "whitewall": {', color: "blue" },
+    { text: '    "whitewall-os": {', color: "blue" },
     { text: '      "command": "npx",', color: "string" },
     { text: '      "args": [', color: "default" },
-    { text: '        "@authos/mcp-server",', color: "string" },
+    { text: '        "@whitewall-os/mcp-server",', color: "string" },
     { text: '        "--chain", "baseSepolia"', color: "string" },
     { text: "      ],", color: "default" },
     { text: '      "env": {', color: "default" },
-    { text: '        "AUTHOS_AGENT_ID": "42"', color: "blue" },
+    { text: '        "WHITEWALL_OS_AGENT_ID": "42"', color: "blue" },
     { text: "      }", color: "default" },
     { text: "    }", color: "default" },
     { text: "  }", color: "default" },
@@ -571,7 +452,7 @@ const mcpConfig: CodeBlock = {
 const solidityModifiers = [
   { name: "requireRegistered", desc: "Reverts if the agent has no ERC-8004 identity NFT.", sig: "(uint256 agentId)" },
   { name: "requireHumanVerified", desc: "Reverts if the agent lacks a human verification bond.", sig: "(uint256 agentId)" },
-  { name: "requireTier", desc: "Reverts if the agent's verification tier is below the minimum.", sig: "(uint256 agentId, uint8 minTier)" },
+  { name: "requireTier", desc: "Reverts if the agent\u0027s verification tier is below the minimum.", sig: "(uint256 agentId, uint8 minTier)" },
 ];
 
 const appMethods = [
@@ -583,37 +464,12 @@ const appMethods = [
 ];
 
 const mcpTools = [
-  { name: "auth_os_check_agent", desc: "Quick check — is this agent registered and human-verified?", sig: "(agentId)" },
-  { name: "auth_os_get_status", desc: "Full report — registration, tier, owner, wallet, validations.", sig: "(agentId)" },
-  { name: "auth_os_get_policy", desc: "Read protocol policy from chain — registries, validators, required tier.", sig: "()" },
+  { name: "whitewall_os_check_agent", desc: "Quick check — is this agent registered and human-verified?", sig: "(agentId)" },
+  { name: "whitewall_os_get_status", desc: "Full report — registration, tier, owner, wallet, validations.", sig: "(agentId)" },
+  { name: "whitewall_os_get_policy", desc: "Read protocol policy from chain — registries, validators, required tier.", sig: "()" },
 ];
 
-function CodeViewer({ code, colorMap }: { code: CodeBlock; colorMap: Record<string, string> }) {
-  const { t } = useContext(ThemeCtx);
-  const mobile = useIsMobile();
-  return (
-    <div style={{
-      borderRadius: 12, overflow: "hidden",
-      border: `1.5px solid ${t.cardBorder}`, background: `${t.codeBg}CC`, backdropFilter: "blur(8px)",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: `${t.codeHeader}CC`, borderBottom: `1px solid ${t.cardBorder}` }}>
-        <div style={{ width: 10, height: 10, borderRadius: 5, background: t.red, opacity: 0.8 }} />
-        <div style={{ width: 10, height: 10, borderRadius: 5, background: "#E8A317", opacity: 0.8 }} />
-        <div style={{ width: 10, height: 10, borderRadius: 5, background: t.green, opacity: 0.8 }} />
-        <span style={{ marginLeft: 8, fontSize: 12, color: t.inkMuted, fontFamily: "monospace" }}>{code.file}</span>
-      </div>
-      <div style={{ padding: mobile ? "16px 12px" : "20px 24px", overflowX: "auto" }}>
-        <pre style={{ margin: 0, fontFamily: "'SF Mono','Fira Code',monospace", fontSize: mobile ? 12 : 13, lineHeight: 1.7 }}>
-          {code.lines.map((line, i) => (
-            <div key={i} style={{ color: colorMap[line.color || "default"], minHeight: "1.7em" }}>
-              {line.text || "\u00A0"}
-            </div>
-          ))}
-        </pre>
-      </div>
-    </div>
-  );
-}
+// CodeViewer imported from shared/theme
 
 function FeatureCards({ items, label }: { items: { name: string; desc: string; sig: string }[]; label: string }) {
   const { t } = useContext(ThemeCtx);
@@ -674,7 +530,7 @@ function IntegrateSection() {
           0 lines of MCP<span style={{ color: t.blue }}>.</span>
         </h2>
         <p style={{ fontSize: mobile ? 15 : 17, color: t.inkMuted, margin: "20px 0 0", maxWidth: 520, lineHeight: 1.7 }}>
-          Protect dApps with AuthOSGuard. Verify agents from your backend. Or give your AI agent identity awareness via MCP — zero code.
+          Protect dApps with WhitewallOSGuard. Verify agents from your backend. Or give your AI agent identity awareness via MCP — zero code.
         </p>
       </div>
 
@@ -783,7 +639,7 @@ function Footer() {
         padding: mobile ? "60px 20px 40px" : "100px 48px 60px", textAlign: "center", maxWidth: 800, margin: "0 auto",
         opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(24px)", transition: "all .8s cubic-bezier(.16,1,.3,1)" }}>
       <h2 style={{ fontSize: mobile ? 32 : 44, fontWeight: 900, letterSpacing: -2, textTransform: "uppercase", lineHeight: 1.05 }}>
-        Every AI agent<br />has an accountable human<span style={{ color: t.blue }}>.</span>
+        A billion agents,<br />every one accountable<span style={{ color: t.blue }}>.</span>
       </h2>
       <p style={{ fontSize: mobile ? 14 : 16, color: t.inkMuted, margin: "20px 0 40px", lineHeight: 1.7 }}>
         3 lines of Solidity. 1 line of TypeScript. Ship verified agents today.
@@ -921,28 +777,27 @@ export default function WhitewallLanding() {
             padding: mobile ? "0 20px" : "0 48px",
             maxWidth: 1320, margin: "0 auto",
           }}>
-            <div style={{ maxWidth: mobile ? "100%" : 600, paddingTop: mobile ? 40 : 0 }}>
+            <div style={{ maxWidth: mobile ? "100%" : 780, paddingTop: mobile ? 40 : 0 }}>
               <div className="ha" style={{
                 animationDelay: "0.2s", display: "inline-block", padding: "5px 14px",
                 borderRadius: 20, border: `1.5px solid ${t.blue}`, fontSize: mobile ? 9 : 11,
                 fontWeight: 700, color: t.blue, marginBottom: mobile ? 20 : 28, letterSpacing: 1,
               }}>
-                TRUST INFRASTRUCTURE FOR THE AGENT ECONOMY
+                LICENSE PLATES FOR THE AGENTIC ECONOMY
               </div>
               <h1 style={{
-                fontSize: mobile ? 42 : 72, fontWeight: 900, lineHeight: 0.98, margin: 0,
-                letterSpacing: mobile ? -1.5 : -3, textTransform: "uppercase",
-                color: t.ink, transition: "color .4s",
+                fontSize: mobile ? 38 : 68, fontWeight: 900, lineHeight: 1.02, margin: 0,
+                letterSpacing: mobile ? -1.5 : -2.5, textTransform: "uppercase",
+                color: t.ink, transition: "color .4s", whiteSpace: "nowrap",
               }}>
-                <span className="ha" style={{ animationDelay: "0.35s", display: "block" }}>The wall</span>
-                <span className="ha" style={{ animationDelay: "0.5s", display: "block" }}>that lets</span>
-                <span className="ha" style={{ animationDelay: "0.65s", display: "block" }}>
-                  you through<span style={{ color: t.blue }}>.</span>
+                <span className="ha" style={{ animationDelay: "0.35s", display: "block" }}>A billion agents,</span>
+                <span className="ha" style={{ animationDelay: "0.55s", display: "block" }}>
+                  Every one accountable<span style={{ color: t.blue }}>.</span>
                 </span>
               </h1>
               <p className="ha" style={{
                 animationDelay: "0.85s", fontSize: mobile ? 14 : 17, color: t.inkMuted,
-                margin: "28px 0 0", lineHeight: 1.7, maxWidth: 440, fontWeight: 400, transition: "color .4s",
+                margin: "28px 0 0", lineHeight: 1.7, maxWidth: 460, fontWeight: 400, transition: "color .4s",
               }}>
                 On-chain identity, verification, and reputation for AI agents.
                 Every autonomous action traces back to an accountable human.

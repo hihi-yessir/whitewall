@@ -7,13 +7,20 @@
 ## 1. Brand Identity
 
 ### Name
-**WHITEWALL** — always uppercase in display, capitalized in prose.
+**WHITEWALL** — the product. Always uppercase in display, capitalized in prose.
+**WHITEWALL OS** — the underlying protocol/SDK layer. Used in code (`WhitewallOS`), package names (`@whitewall-os/sdk`), and developer-facing contexts.
 
 ### Tagline
-*"The wall that lets you through."*
+*"A billion agents. Every one accountable."*
+
+### Descriptor
+*"License plates for the agentic economy."*
 
 ### Origin
 Inspired by Cyberpunk 2077's "Blackwall" (a firewall separating rogue AIs from the net), flipped to represent a **whitehat** trust barrier — it blocks malicious agents but lets verified ones pass through.
+
+### Analogy
+Like license plates for cars or HTTPS for websites — Whitewall provides the missing identity layer for the agentic economy. Every agent gets a verifiable on-chain identity tied to an accountable human.
 
 ### Voice & Tone
 - **Confident, not aggressive.** We state facts, not hype.
@@ -22,7 +29,7 @@ Inspired by Cyberpunk 2077's "Blackwall" (a firewall separating rogue AIs from t
 - **No emojis in UI** (except problem card icons: 👤 🔄 ⚠).
 
 ### Core Message
-> Every AI agent has an accountable human.
+> A billion agents. Every one accountable.
 
 Three CTA axes:
 | CTA | Purpose | Target |
