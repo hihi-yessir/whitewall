@@ -350,8 +350,13 @@ export function TryItFlow({ dispatch, wallet, agent }: {
             padding: "8px 12px", borderRadius: 6, marginBottom: 12,
             background: `${t.red}15`, border: `1px solid ${t.red}30`,
             fontSize: 12, color: t.red,
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
           }}>
-            {error}
+            <span style={{ flex: 1 }}>{error}</span>
+            <button onClick={() => setError(null)} style={{
+              background: "none", border: "none", color: t.red, cursor: "pointer",
+              fontSize: 14, fontWeight: 700, padding: "0 4px", opacity: 0.7,
+            }}>{"\u00D7"}</button>
           </div>
         )}
 
@@ -436,9 +441,21 @@ export function TryItFlow({ dispatch, wallet, agent }: {
         {step === "done" && (
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Complete</div>
-            <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5, marginBottom: 16 }}>
               Agent #{agent.id?.toString()} passed all gates. Check the pipeline visualization above.
             </div>
+            <Btn small onClick={() => {
+              setStep("connect");
+              setError(null);
+              setIdentityRegistry(null);
+              setWorldIdValidator(null);
+              setIdkitReady(false);
+              dispatch({ type: "RESET_PIPELINE" });
+              dispatch({ type: "SET_WALLET", wallet: { connected: false } });
+              dispatch({ type: "SET_AGENT", agent: { id: undefined, isRegistered: false, isApproved: false, isHumanVerified: false } });
+            }}>
+              Start Over
+            </Btn>
           </div>
         )}
       </div>

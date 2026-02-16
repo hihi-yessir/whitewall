@@ -36,10 +36,11 @@ export function LiveTerminal({ entries }: { entries: TerminalEntry[] }) {
 
   return (
     <div style={{
-      background: `${t.codeBg}EE`, backdropFilter: "blur(8px)",
-      borderTop: `1px solid ${t.cardBorder}`,
-      height: mobile ? 160 : 200,
+      background: `${t.codeBg}80`,
+      borderTop: `1px solid ${t.cardBorder}30`,
+      height: mobile ? 200 : 220,
       display: "flex", flexDirection: "column",
+      marginTop: "auto",
     }}>
       <div style={{
         display: "flex", alignItems: "center", gap: 8,
