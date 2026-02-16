@@ -12,14 +12,31 @@ export function PipelineViz({ steps }: { steps: PipelineStepState[] }) {
 
   return (
     <div style={{
-      flex: 1, padding: mobile ? "20px 12px" : "32px 24px",
+      flex: 1, padding: mobile ? "20px 0" : "32px 24px",
       display: "flex", flexDirection: "column", justifyContent: "center",
-      overflowX: mobile ? "auto" : "hidden",
+      position: "relative",
     }}>
+      {/* Scroll fade hints on mobile */}
+      {mobile && (
+        <>
+          <div style={{
+            position: "absolute", left: 0, top: 0, bottom: 0, width: 24, zIndex: 1,
+            background: `linear-gradient(90deg, ${t.card}B0, transparent)`,
+            pointerEvents: "none",
+          }} />
+          <div style={{
+            position: "absolute", right: 0, top: 0, bottom: 0, width: 24, zIndex: 1,
+            background: `linear-gradient(270deg, ${t.card}B0, transparent)`,
+            pointerEvents: "none",
+          }} />
+        </>
+      )}
       <div style={{
         display: "flex", alignItems: "flex-start", gap: 0,
+        overflowX: mobile ? "auto" : "hidden",
         minWidth: mobile ? steps.length * 80 : "auto",
         justifyContent: mobile ? "flex-start" : "center",
+        padding: mobile ? "0 16px" : 0,
       }}>
         {steps.map((step, i) => (
           <div key={step.id} style={{ display: "flex", alignItems: "flex-start" }}>

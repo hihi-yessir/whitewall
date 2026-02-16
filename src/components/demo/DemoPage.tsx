@@ -89,6 +89,10 @@ export default function DemoPage() {
       }
     } catch (err) {
       console.error("Simulation error:", err);
+      dispatch({ type: "ADD_TERMINAL", entry: {
+        tag: "SYSTEM", message: "Connection lost — simulation interrupted.",
+        status: "fail" as const, timestamp: Date.now(),
+      }});
     }
     dispatch({ type: "SET_RUNNING", isRunning: false });
   }, [presentMode]);
@@ -160,10 +164,11 @@ export default function DemoPage() {
         <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <DemoNav currentAct={state.act} onActChange={handleActChange} />
 
-        <div style={{
+        <div key={state.act} style={{
           flex: 1, display: "flex",
           flexDirection: mobile ? "column" : "row",
           overflow: "hidden",
+          animation: "actFadeIn .25s ease-out",
         }}>
           {/* Left: Control Panel or Try It */}
           {state.act === 4 ? (
@@ -185,31 +190,44 @@ export default function DemoPage() {
             />
           )}
 
-          {/* Center: Pipeline Viz + Result */}
+          {/* Center: Pipeline Viz + Result + Terminal — frosted panel */}
           <div style={{
             flex: 1, display: "flex", flexDirection: "column",
             minHeight: 0,
+            margin: mobile ? 8 : 16,
+            marginLeft: mobile ? 8 : 0,
+            background: `${t.card}B0`,
+            backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
+            border: `1px solid ${t.cardBorder}40`,
+            borderRadius: 14,
+            overflow: "hidden",
+            transition: "background .4s, border-color .4s",
           }}>
             <PipelineViz steps={state.pipeline} />
 
-            {/* Result card overlay */}
+            {/* Result card */}
             {state.result && (
               <div style={{
                 padding: mobile ? "0 16px 16px" : "0 32px 24px",
-                maxWidth: 400, alignSelf: "center", width: "100%",
+                maxWidth: 440, alignSelf: "center", width: "100%",
               }}>
                 <ResultCard result={state.result} />
               </div>
             )}
+
+            {/* Terminal inside the panel */}
+            <LiveTerminal entries={state.terminal} />
           </div>
         </div>
-
-        {/* Bottom: Live Terminal */}
-        <LiveTerminal entries={state.terminal} />
         </div>{/* end content wrapper */}
 
         {/* Global styles */}
         <style>{`
+          @keyframes actFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
           @keyframes demoPulse {
             0%, 100% { opacity: 0.5; transform: scale(1); }
             50% { opacity: 1; transform: scale(1.1); }
@@ -219,7 +237,7 @@ export default function DemoPage() {
             to { opacity: 1; transform: none; }
           }
           @keyframes resultAppear {
-            from { opacity: 0; transform: scale(0.95) translateY(8px); }
+            from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: none; }
           }
           ::selection { background: ${t.blue}30; }
