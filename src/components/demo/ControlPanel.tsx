@@ -6,9 +6,9 @@ import { useIsMobile } from "../shared/hooks";
 import type { ScenarioId } from "./types";
 
 const scenarios: { id: ScenarioId; label: string; desc: string; act: 1 | 2 | 3 }[] = [
-  { id: "anon-bot", label: "Anonymous Bot", desc: "Unregistered agent tries to access service. Gate 1 blocks it.", act: 1 },
-  { id: "registered-bot", label: "Registered Bot", desc: "Registered but unverified. Gate 2 blocks it.", act: 2 },
-  { id: "verified-agent", label: "Verified Agent", desc: "All gates pass. Accountable human revealed.", act: 3 },
+  { id: "anon-bot", label: "Anonymous Bot", desc: "No ERC-8004. Blocked at Gate 1.", act: 1 },
+  { id: "registered-bot", label: "Registered Bot", desc: "ERC-8004 but unverified. Blocked at Gate 2.", act: 2 },
+  { id: "verified-agent", label: "Verified Agent", desc: "ERC-8004 + World ID. All gates pass.", act: 3 },
 ];
 
 export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
@@ -68,7 +68,7 @@ export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
 
       <ScenarioButton
         label="Try It Yourself"
-        desc="Connect wallet, register, verify, request access."
+        desc="Register, verify, run the full pipeline."
         active={currentAct === 4}
         disabled={isRunning}
         onClick={onTryIt}
