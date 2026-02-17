@@ -17,6 +17,15 @@ export interface TerminalEntry {
   timestamp: number;
 }
 
+export interface GenerationResult {
+  id: string;
+  imageUrl: string;
+  prompt: string;
+  agentId: string;
+  ownerAddress: string;
+  timestamp: number;
+}
+
 export interface DemoState {
   act: 1 | 2 | 3 | 4;
   scenario: ScenarioId;
@@ -26,6 +35,9 @@ export interface DemoState {
   wallet: { connected: boolean; address?: string };
   agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean };
   result?: { granted: boolean; accountableHuman?: string; tier?: number; reason?: string };
+  prompt: string;
+  isGenerating: boolean;
+  generation?: GenerationResult;
 }
 
 export const PIPELINE_STEPS: PipelineStepState[] = [
@@ -53,7 +65,10 @@ export type DemoAction =
   | { type: 'SET_RUNNING'; isRunning: boolean }
   | { type: 'SET_WALLET'; wallet: DemoState['wallet'] }
   | { type: 'SET_AGENT'; agent: Partial<DemoState['agent']> }
-  | { type: 'SET_RESULT'; result: DemoState['result'] };
+  | { type: 'SET_RESULT'; result: DemoState['result'] }
+  | { type: 'SET_PROMPT'; prompt: string }
+  | { type: 'SET_GENERATING'; isGenerating: boolean }
+  | { type: 'SET_GENERATION'; generation: GenerationResult | undefined };
 
 export function demoReducer(state: DemoState, action: DemoAction): DemoState {
   switch (action.type) {
@@ -68,6 +83,9 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
         terminal: [],
         result: undefined,
         isRunning: false,
+        prompt: '',
+        isGenerating: false,
+        generation: undefined,
       };
     case 'UPDATE_STEP':
       return {
@@ -99,6 +117,12 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
       return { ...state, agent: { ...state.agent, ...action.agent } };
     case 'SET_RESULT':
       return { ...state, result: action.result };
+    case 'SET_PROMPT':
+      return { ...state, prompt: action.prompt };
+    case 'SET_GENERATING':
+      return { ...state, isGenerating: action.isGenerating };
+    case 'SET_GENERATION':
+      return { ...state, generation: action.generation };
     default:
       return state;
   }
@@ -112,4 +136,6 @@ export const initialDemoState: DemoState = {
   isRunning: false,
   wallet: { connected: false },
   agent: { isRegistered: false, isApproved: false, isHumanVerified: false },
+  prompt: '',
+  isGenerating: false,
 };

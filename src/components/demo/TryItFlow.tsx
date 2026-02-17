@@ -3,7 +3,7 @@
 import { useContext, useState, useCallback, type Dispatch } from "react";
 import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
-import type { DemoAction, TerminalEntry } from "./types";
+import type { DemoAction, TerminalEntry, GenerationResult } from "./types";
 
 // Lazy-loaded IDKit to reduce bundle
 let IDKitWidget: any = null;
@@ -31,14 +31,17 @@ import { baseSepolia } from "viem/chains";
 import { identityRegistryAbi, worldIdValidatorAbi, addresses } from "@whitewall-os/sdk";
 
 const WORLD_ID_APP = "app_staging_dae27f9b14a30e0e0917797aceac795a";
-const WORLD_ID_ACTION = "verify-owner";
+const WORLD_ID_ACTION_PREFIX = "verify-owner-";
 
-type FlowStep = "connect" | "register" | "approve" | "verify" | "request" | "done";
+type FlowStep = "connect" | "register" | "approve" | "verify" | "request" | "generate" | "done";
 
-export function TryItFlow({ dispatch, wallet, agent }: {
+export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, generation }: {
   dispatch: Dispatch<DemoAction>;
   wallet: { connected: boolean; address?: string };
   agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean };
+  prompt: string;
+  isGenerating: boolean;
+  generation?: GenerationResult;
 }) {
   const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
@@ -273,7 +276,7 @@ export function TryItFlow({ dispatch, wallet, agent }: {
 
           if (data.type === "done") {
             dispatch({ type: "SET_RUNNING", isRunning: false });
-            setStep("done");
+            setStep("generate");
             return;
           }
           if (data.type === "step") {
@@ -296,12 +299,91 @@ export function TryItFlow({ dispatch, wallet, agent }: {
     dispatch({ type: "SET_RUNNING", isRunning: false });
   }, [agent.id, dispatch, addLog]);
 
+  const handleGenerate = useCallback(async () => {
+    if (!prompt.trim() || !wallet.address || !agent.id) return;
+    dispatch({ type: "RESET_PIPELINE" });
+    dispatch({ type: "SET_GENERATING", isGenerating: true });
+    dispatch({ type: "SET_RUNNING", isRunning: true });
+
+    addLog("GENERATE", `Requesting image: "${prompt.slice(0, 60)}${prompt.length > 60 ? "..." : ""}"`, "info");
+
+    try {
+      const resp = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          agentId: agent.id.toString(),
+          ownerAddress: wallet.address,
+        }),
+      });
+
+      const reader = resp.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = JSON.parse(line.slice(6));
+
+          if (data.type === "done") {
+            dispatch({ type: "SET_RUNNING", isRunning: false });
+            dispatch({ type: "SET_GENERATING", isGenerating: false });
+            setStep("done");
+            return;
+          }
+          if (data.type === "step") {
+            dispatch({ type: "UPDATE_STEP", stepId: data.stepId, status: data.status, detail: data.detail, timing: data.timing });
+          }
+          if (data.type === "terminal") {
+            dispatch({ type: "ADD_TERMINAL", entry: { tag: data.tag, message: data.message, status: data.termStatus, timestamp: Date.now() } });
+          }
+          if (data.type === "result") {
+            if (data.status === "granted" && data.imageUrl) {
+              dispatch({
+                type: "SET_GENERATION",
+                generation: {
+                  id: data.id,
+                  imageUrl: data.imageUrl,
+                  prompt: data.prompt,
+                  agentId: data.agentId,
+                  ownerAddress: data.ownerAddress,
+                  timestamp: data.timestamp,
+                },
+              });
+              dispatch({ type: "SET_RESULT", result: { granted: true, accountableHuman: data.ownerAddress, tier: 2 } });
+            } else {
+              dispatch({ type: "SET_RESULT", result: { granted: false, reason: data.reason || "Generation failed" } });
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      addLog("ERROR", err.message || "Generation failed", "fail");
+      dispatch({ type: "SET_RESULT", result: { granted: false, reason: err.message || "Generation failed" } });
+    }
+    dispatch({ type: "SET_RUNNING", isRunning: false });
+    dispatch({ type: "SET_GENERATING", isGenerating: false });
+    setStep("done");
+  }, [prompt, wallet.address, agent.id, dispatch, addLog]);
+
   const flowSteps: { key: FlowStep; label: string; num: number }[] = [
-    { key: "connect", label: "Connect Wallet", num: 1 },
-    { key: "register", label: "Register Agent", num: 2 },
-    { key: "approve", label: "Approve Validator", num: 3 },
-    { key: "verify", label: "Verify with World ID", num: 4 },
-    { key: "request", label: "Request Access", num: 5 },
+    { key: "connect", label: "Connect", num: 1 },
+    { key: "register", label: "Register", num: 2 },
+    { key: "approve", label: "Approve", num: 3 },
+    { key: "verify", label: "Verify", num: 4 },
+    { key: "request", label: "Pipeline", num: 5 },
+    { key: "generate", label: "Generate", num: 6 },
   ];
 
   const currentIdx = flowSteps.findIndex(f => f.key === step);
@@ -406,7 +488,7 @@ export function TryItFlow({ dispatch, wallet, agent }: {
               <>
                 <IDKitWidget
                   app_id={WORLD_ID_APP}
-                  action={WORLD_ID_ACTION}
+                  action={`${WORLD_ID_ACTION_PREFIX}${agent.id?.toString() || "0"}`}
                   handleVerify={handleWorldIDVerify}
                   verification_level={VerificationLevel.Device}
                   signal={wallet.address || "0x0"}
@@ -438,24 +520,94 @@ export function TryItFlow({ dispatch, wallet, agent }: {
           </div>
         )}
 
-        {step === "done" && (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Complete</div>
-            <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5, marginBottom: 16 }}>
-              Agent #{agent.id?.toString()} passed all gates. Check the pipeline visualization above.
+        {step === "generate" && (
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Passed</div>
+            <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
+              Agent #{agent.id?.toString()} cleared all gates. Now generate an image — it will be permanently tagged with a license plate.
             </div>
-            <Btn small onClick={() => {
-              setStep("connect");
-              setError(null);
-              setIdentityRegistry(null);
-              setWorldIdValidator(null);
-              setIdkitReady(false);
-              dispatch({ type: "RESET_PIPELINE" });
-              dispatch({ type: "SET_WALLET", wallet: { connected: false } });
-              dispatch({ type: "SET_AGENT", agent: { id: undefined, isRegistered: false, isApproved: false, isHumanVerified: false } });
-            }}>
-              Start Over
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating) handleGenerate(); }}
+              placeholder="Describe an image..."
+              disabled={isGenerating}
+              style={{
+                width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
+                border: `1.5px solid ${t.cardBorder}`, background: `${t.bg}CC`, color: t.ink,
+                outline: "none", fontFamily: "inherit", marginBottom: 12,
+                boxSizing: "border-box",
+              }}
+            />
+            <Btn primary small onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}>
+              {isGenerating ? "Generating..." : "Generate Image"}
             </Btn>
+          </div>
+        )}
+
+        {step === "done" && (
+          <div>
+            {generation ? (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: t.green }}>Image Generated</div>
+                <div style={{
+                  borderRadius: 8, overflow: "hidden", marginBottom: 12,
+                  border: `1.5px solid ${t.cardBorder}`,
+                }}>
+                  <img
+                    src={generation.imageUrl}
+                    alt={generation.prompt}
+                    style={{ width: "100%", display: "block" }}
+                  />
+                </div>
+                {/* License plate receipt */}
+                <div style={{
+                  padding: "10px 12px", borderRadius: 8, fontSize: 11,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  background: `${t.codeBg}CC`, border: `1px solid ${t.cardBorder}40`,
+                  color: t.inkMuted, lineHeight: 1.7, marginBottom: 12,
+                }}>
+                  <div style={{ fontWeight: 700, color: t.blue, marginBottom: 4, fontSize: 10, letterSpacing: 1, textTransform: "uppercase" }}>License Plate</div>
+                  <div>id: <span style={{ color: t.ink }}>{generation.id.slice(0, 8)}...</span></div>
+                  <div>agent: <span style={{ color: t.blue }}>#{generation.agentId}</span></div>
+                  <div>owner: <span style={{ color: t.ink }}>{generation.ownerAddress.slice(0, 6)}...{generation.ownerAddress.slice(-4)}</span></div>
+                  <div>prompt: <span style={{ color: t.ink }}>{generation.prompt.slice(0, 50)}{generation.prompt.length > 50 ? "..." : ""}</span></div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Btn small href="/feed" style={{ fontSize: 12 }}>View on Feed</Btn>
+                  <Btn small onClick={() => {
+                    dispatch({ type: "SET_GENERATION", generation: undefined });
+                    dispatch({ type: "SET_PROMPT", prompt: "" });
+                    dispatch({ type: "RESET_PIPELINE" });
+                    setStep("generate");
+                  }} style={{ fontSize: 12 }}>
+                    Generate Another
+                  </Btn>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Complete</div>
+                <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5, marginBottom: 16 }}>
+                  Agent #{agent.id?.toString()} passed all gates. Check the pipeline visualization above.
+                </div>
+              </>
+            )}
+            <div style={{ marginTop: 12 }}>
+              <Btn small onClick={() => {
+                setStep("connect");
+                setError(null);
+                setIdentityRegistry(null);
+                setWorldIdValidator(null);
+                setIdkitReady(false);
+                dispatch({ type: "RESET_PIPELINE" });
+                dispatch({ type: "SET_WALLET", wallet: { connected: false } });
+                dispatch({ type: "SET_AGENT", agent: { id: undefined, isRegistered: false, isApproved: false, isHumanVerified: false } });
+              }} style={{ fontSize: 12 }}>
+                Start Over
+              </Btn>
+            </div>
           </div>
         )}
       </div>

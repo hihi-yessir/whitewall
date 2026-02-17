@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^1.41.0",
+    "@upstash/redis": "^1.36.2",
+    "@vercel/blob": "^2.2.0",
     "@whitewall-os/sdk": "^0.1.0",
     "@worldcoin/idkit": "^2.4.2",
     "next": "16.1.6",
@@ -26,6 +29,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }
