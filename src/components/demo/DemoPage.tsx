@@ -179,7 +179,7 @@ export default function DemoPage() {
               overflowY: "auto",
               maxHeight: mobile ? 400 : "none",
             }}>
-              <TryItFlow dispatch={dispatch} wallet={state.wallet} agent={state.agent} />
+              <TryItFlow dispatch={dispatch} wallet={state.wallet} agent={state.agent} prompt={state.prompt} isGenerating={state.isGenerating} generation={state.generation} />
             </div>
           ) : (
             <ControlPanel
@@ -212,7 +212,7 @@ export default function DemoPage() {
                 padding: mobile ? "0 16px 16px" : "0 32px 24px",
                 maxWidth: 440, alignSelf: "center", width: "100%",
               }}>
-                <ResultCard result={state.result} />
+                <ResultCard result={state.result} generation={state.generation} />
               </div>
             )}
 

@@ -65,8 +65,19 @@ export function DemoNav({ currentAct, onActChange }: {
         })}
       </div>
 
-      {/* Right: theme toggle */}
-      <ThemeToggle />
+      {/* Right: feed link + theme toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <a href="/feed" style={{
+          fontSize: 12, fontWeight: 700, color: t.blue,
+          textDecoration: "none", letterSpacing: 1, textTransform: "uppercase",
+          padding: "4px 10px", borderRadius: 4,
+          background: `${t.blue}10`, border: `1px solid ${t.blue}25`,
+          transition: "all .2s",
+        }}>
+          Feed
+        </a>
+        <ThemeToggle />
+      </div>
     </nav>
   );
 }
