@@ -32,6 +32,7 @@ import { identityRegistryAbi, worldIdValidatorAbi, addresses } from "@whitewall-
 
 const WORLD_ID_APP = "app_staging_dae27f9b14a30e0e0917797aceac795a";
 const WORLD_ID_ACTION_PREFIX = "verify-owner-";
+const WORLD_ID_VALIDATOR_ADDR = "0x1258F013d1BA690Dc73EA89Fd48F86E86AD0f124";
 
 type FlowStep = "connect" | "register" | "approve" | "verify" | "request" | "generate" | "done";
 
@@ -96,12 +97,9 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       const { humanVerifiedPolicyAbi } = await import("@whitewall-os/sdk");
       const policyAddr = addresses.baseSepolia.humanVerifiedPolicy;
 
-      const [idReg, wIdVal] = await Promise.all([
-        publicClient.readContract({ address: policyAddr, abi: humanVerifiedPolicyAbi, functionName: "getIdentityRegistry" }),
-        publicClient.readContract({ address: policyAddr, abi: humanVerifiedPolicyAbi, functionName: "getWorldIdValidator" }),
-      ]);
+      const idReg = await publicClient.readContract({ address: policyAddr, abi: humanVerifiedPolicyAbi, functionName: "getIdentityRegistry" });
       setIdentityRegistry(idReg as string);
-      setWorldIdValidator(wIdVal as string);
+      setWorldIdValidator(WORLD_ID_VALIDATOR_ADDR);
       addLog("SDK", `Policy loaded: registry=${(idReg as string).slice(0, 10)}...`, "pass");
 
       setStep("register");
