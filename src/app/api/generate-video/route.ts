@@ -2,11 +2,11 @@ import { NextRequest } from "next/server";
 import { createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
 import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS } from "@/lib/redis";
-import { generateImage } from "@/lib/genapi";
+import { generateVideo } from "@/lib/genapi";
 import { uploadBuffer } from "@/lib/blob";
 
-const RATE_LIMIT = 3;       // max per window
-const RATE_WINDOW = 60;     // seconds
+const RATE_LIMIT = 2;       // stricter for video
+const RATE_WINDOW = 120;    // 2 minutes
 
 const WORLD_ID_VALIDATOR = "0x1258F013d1BA690Dc73EA89Fd48F86E86AD0f124" as const;
 const isHumanVerifiedAbi = [{
@@ -28,10 +28,6 @@ function sse(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export async function POST(request: NextRequest) {
   let body: { prompt?: string; agentId?: string; ownerAddress?: string };
   try {
@@ -45,7 +41,6 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "Missing prompt, agentId, or ownerAddress" }), { status: 400 });
   }
 
-  // Sanitize prompt length
   const cleanPrompt = prompt.slice(0, 500).trim();
   if (!cleanPrompt) {
     return new Response(JSON.stringify({ error: "Empty prompt" }), { status: 400 });
@@ -61,14 +56,14 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        // Rate limit check
+        // Rate limit
         send({ type: "terminal", tag: "RATE", message: `Checking rate limit for ${ownerAddress.slice(0, 8)}...`, termStatus: "info" });
         const rlKey = rateLimitKey(ownerAddress.toLowerCase());
         const count = await redis.incr(rlKey);
         if (count === 1) await redis.expire(rlKey, RATE_WINDOW);
 
         if (count > RATE_LIMIT) {
-          send({ type: "terminal", tag: "RATE", message: `Rate limit exceeded (${RATE_LIMIT}/min). Try again shortly.`, termStatus: "fail" });
+          send({ type: "terminal", tag: "RATE", message: `Rate limit exceeded (${RATE_LIMIT}/${RATE_WINDOW}s). Try again shortly.`, termStatus: "fail" });
           send({ type: "result", status: "denied", reason: "Rate limit exceeded" });
           send({ type: "done" });
           controller.close();
@@ -76,9 +71,8 @@ export async function POST(request: NextRequest) {
         }
         send({ type: "terminal", tag: "RATE", message: `Rate limit OK (${count}/${RATE_LIMIT})`, termStatus: "pass" });
 
-        // On-chain verification check
+        // On-chain verification
         send({ type: "terminal", tag: "VERIFY", message: `Checking on-chain verification for agent #${agentId}...`, termStatus: "info" });
-        send({ type: "step", stepId: "verify", status: "active" });
 
         let humanVerified = false;
         try {
@@ -92,25 +86,16 @@ export async function POST(request: NextRequest) {
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : "Verification check failed";
           send({ type: "terminal", tag: "VERIFY", message: `Verification lookup failed: ${msg}`, termStatus: "fail" });
-          send({ type: "step", stepId: "verify", status: "fail", detail: "RPC error" });
-          // Treat RPC failure as unverified
         }
 
         if (!humanVerified) {
           send({ type: "terminal", tag: "VERIFY", message: `Agent #${agentId} is not human-verified on-chain`, termStatus: "fail" });
-          send({ type: "step", stepId: "verify", status: "fail", detail: "Not verified" });
 
           const genId = crypto.randomUUID();
           const deniedEntry = {
-            id: genId,
-            prompt: cleanPrompt,
-            imageUrl: "",
-            status: "denied",
-            agentId,
-            ownerAddress: ownerAddress.toLowerCase(),
-            humanVerified: "false",
-            tier: "2",
-            reason: "Agent is not human-verified",
+            id: genId, prompt: cleanPrompt, imageUrl: "", status: "denied",
+            agentId, ownerAddress: ownerAddress.toLowerCase(),
+            humanVerified: "false", tier: "3", reason: "Agent is not human-verified",
             timestamp: String(Date.now()),
           };
           await redis.hset(genKey(genId), deniedEntry);
@@ -126,56 +111,34 @@ export async function POST(request: NextRequest) {
         }
 
         send({ type: "terminal", tag: "VERIFY", message: `Agent #${agentId} is human-verified`, termStatus: "pass" });
-        send({ type: "step", stepId: "verify", status: "pass", detail: "Verified" });
 
-        // Pipeline simulation (abbreviated — the real pipeline already ran in step 5)
-        send({ type: "terminal", tag: "RESOURCE", message: `Image generation requested: "${cleanPrompt.slice(0, 60)}${cleanPrompt.length > 60 ? "..." : ""}"`, termStatus: "info" });
-        send({ type: "step", stepId: "agent", status: "active" });
-        await delay(200);
-        send({ type: "step", stepId: "agent", status: "pass", detail: "Prompt received" });
-
-        send({ type: "step", stepId: "x402", status: "active" });
-        send({ type: "terminal", tag: "x402", message: "Resource payment: $0.10 USDC for image generation", termStatus: "info" });
-        await delay(300);
-        send({ type: "step", stepId: "x402", status: "pass", detail: "$0.10 held", timing: 300 });
-
-        // Generate image
-        send({ type: "step", stepId: "gateway", status: "active" });
-        send({ type: "terminal", tag: "GEN", message: "Generating image via SDXL...", termStatus: "info" });
+        // Generate video
+        send({ type: "terminal", tag: "GEN", message: `Video generation requested: "${cleanPrompt.slice(0, 60)}..."`, termStatus: "info" });
+        send({ type: "terminal", tag: "GEN", message: "Submitting to LTX-Video (this may take 1-3 min)...", termStatus: "info" });
 
         const genId = crypto.randomUUID();
-        let imageUrl: string | undefined;
+        let videoUrl: string | undefined;
 
         try {
-          const result = await generateImage(cleanPrompt, (status) => {
+          const result = await generateVideo(cleanPrompt, (status) => {
             if (status === "processing") {
-              send({ type: "terminal", tag: "GEN", message: "GPU processing...", termStatus: "info" });
+              send({ type: "terminal", tag: "GEN", message: "GPU processing video frames...", termStatus: "info" });
             }
           });
-          send({ type: "terminal", tag: "GEN", message: "Image generated successfully", termStatus: "pass" });
-          send({ type: "step", stepId: "gateway", status: "pass", detail: "Image ready", timing: 3000 });
+          send({ type: "terminal", tag: "GEN", message: "Video generated successfully", termStatus: "pass" });
 
-          // Upload to Vercel Blob
           send({ type: "terminal", tag: "BLOB", message: "Uploading to permanent storage...", termStatus: "info" });
-          const ext = result.contentType.includes("webp") ? "webp" : "png";
-          imageUrl = await uploadBuffer(result.buffer, `generations/${genId}.${ext}`, result.contentType);
-          send({ type: "terminal", tag: "BLOB", message: "Image stored permanently", termStatus: "pass" });
+          const ext = result.contentType.includes("webp") ? "webp" : "mp4";
+          videoUrl = await uploadBuffer(result.buffer, `generations/${genId}.${ext}`, result.contentType);
+          send({ type: "terminal", tag: "BLOB", message: "Video stored permanently", termStatus: "pass" });
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Image generation failed";
+          const msg = err instanceof Error ? err.message : "Video generation failed";
           send({ type: "terminal", tag: "GEN", message: `Generation failed: ${msg}`, termStatus: "fail" });
-          send({ type: "step", stepId: "gateway", status: "fail", detail: "Gen failed" });
 
-          // Store denied entry (use empty strings for absent fields — Redis hashes are string-only)
           const deniedEntry = {
-            id: genId,
-            prompt: cleanPrompt,
-            imageUrl: "",
-            status: "denied",
-            agentId,
-            ownerAddress: ownerAddress.toLowerCase(),
-            humanVerified: String(humanVerified),
-            tier: "2",
-            reason: msg,
+            id: genId, prompt: cleanPrompt, imageUrl: "", status: "denied",
+            agentId, ownerAddress: ownerAddress.toLowerCase(),
+            humanVerified: String(humanVerified), tier: "3", reason: msg,
             timestamp: String(Date.now()),
           };
           await redis.hset(genKey(genId), deniedEntry);
@@ -190,21 +153,11 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // Store metadata in Redis
-        send({ type: "step", stepId: "cre", status: "active" });
-        send({ type: "terminal", tag: "LEDGER", message: "Recording license plate in feed...", termStatus: "info" });
-
-        // All values as strings — Redis hashes are string-only
+        // Record in feed
         const entry = {
-          id: genId,
-          prompt: cleanPrompt,
-          imageUrl: imageUrl || "",
-          status: "granted",
-          agentId,
-          ownerAddress: ownerAddress.toLowerCase(),
-          humanVerified: String(humanVerified),
-          tier: "2",
-          reason: "",
+          id: genId, prompt: cleanPrompt, imageUrl: videoUrl || "", status: "granted",
+          agentId, ownerAddress: ownerAddress.toLowerCase(),
+          humanVerified: String(humanVerified), tier: "3", reason: "",
           timestamp: String(Date.now()),
         };
         await redis.hset(genKey(genId), entry);
@@ -213,19 +166,12 @@ export async function POST(request: NextRequest) {
         await redis.incr(STATS_GRANTED);
         await redis.sadd(STATS_AGENTS, agentId);
 
-        send({ type: "step", stepId: "cre", status: "pass", detail: "Recorded", timing: 100 });
         send({ type: "terminal", tag: "LEDGER", message: `License plate issued: ${genId.slice(0, 8)}...`, termStatus: "pass" });
-        send({ type: "terminal", tag: "x402", message: "$0.10 USDC payment finalized", termStatus: "pass" });
 
-        // Final result
         send({
-          type: "result",
-          status: "granted",
-          id: genId,
-          imageUrl,
-          prompt: cleanPrompt,
-          agentId,
-          ownerAddress: ownerAddress.toLowerCase(),
+          type: "result", status: "granted",
+          id: genId, videoUrl, prompt: cleanPrompt,
+          agentId, ownerAddress: ownerAddress.toLowerCase(),
           timestamp: Number(entry.timestamp),
         });
         send({ type: "done" });
