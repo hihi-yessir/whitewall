@@ -1,6 +1,8 @@
 export type StepStatus = 'idle' | 'active' | 'pass' | 'fail' | 'skipped';
 
-export type ScenarioId = 'idle' | 'anon-bot' | 'registered-bot' | 'verified-agent' | 'try-it';
+export type ScenarioId = 'idle' | 'anon-bot' | 'registered-bot' | 'verified-agent' | 'kyc-agent' | 'credit-agent' | 'try-it';
+
+export type ActNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface PipelineStepState {
   id: string;
@@ -27,13 +29,13 @@ export interface GenerationResult {
 }
 
 export interface DemoState {
-  act: 1 | 2 | 3 | 4;
+  act: ActNumber;
   scenario: ScenarioId;
   pipeline: PipelineStepState[];
   terminal: TerminalEntry[];
   isRunning: boolean;
   wallet: { connected: boolean; address?: string };
-  agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean };
+  agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean; agentWallet?: string; agentFunded?: boolean };
   result?: { granted: boolean; accountableHuman?: string; tier?: number; reason?: string };
   prompt: string;
   isGenerating: boolean;
@@ -46,16 +48,16 @@ export const PIPELINE_STEPS: PipelineStepState[] = [
   { id: 'gateway', label: 'Gateway', status: 'idle' },
   { id: 'cre', label: 'CRE', status: 'idle' },
   { id: 'gate1', label: 'G1: Identity', status: 'idle' },
-  { id: 'gate2', label: 'G2: Verification', status: 'idle' },
-  { id: 'gate3', label: 'G3: Liveness', status: 'idle' },
-  { id: 'gate4', label: 'G4: Reputation', status: 'idle' },
+  { id: 'gate2', label: 'G2: Human', status: 'idle' },
+  { id: 'gate3', label: 'G3: KYC', status: 'idle' },
+  { id: 'gate4', label: 'G4: Credit', status: 'idle' },
   { id: 'don', label: 'DON', status: 'idle' },
   { id: 'ace', label: 'ACE', status: 'idle' },
   { id: 'result', label: 'Result', status: 'idle' },
 ];
 
 export type DemoAction =
-  | { type: 'SET_ACT'; act: 1 | 2 | 3 | 4 }
+  | { type: 'SET_ACT'; act: ActNumber }
   | { type: 'SET_SCENARIO'; scenario: ScenarioId }
   | { type: 'RESET_PIPELINE' }
   | { type: 'UPDATE_STEP'; stepId: string; status: StepStatus; detail?: string; timing?: number }

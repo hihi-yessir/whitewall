@@ -3,16 +3,18 @@
 import { useContext, useState } from "react";
 import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
-import type { ScenarioId } from "./types";
+import type { ScenarioId, ActNumber } from "./types";
 
-const scenarios: { id: ScenarioId; label: string; desc: string; act: 1 | 2 | 3 }[] = [
+const scenarios: { id: ScenarioId; label: string; desc: string; act: ActNumber }[] = [
   { id: "anon-bot", label: "Anonymous Bot", desc: "No ERC-8004. Blocked at Gate 1.", act: 1 },
   { id: "registered-bot", label: "Registered Bot", desc: "ERC-8004 but unverified. Blocked at Gate 2.", act: 2 },
-  { id: "verified-agent", label: "Verified Agent", desc: "ERC-8004 + World ID. All gates pass.", act: 3 },
+  { id: "verified-agent", label: "Verified Agent", desc: "ERC-8004 + World ID. Image gen (Tier 2).", act: 3 },
+  { id: "kyc-agent", label: "KYC Verified", desc: "Stripe Identity via Confidential HTTP. Video gen (Tier 3).", act: 4 },
+  { id: "credit-agent", label: "Credit Scored", desc: "All 4 gates pass. Plaid via Confidential HTTP. Premium (Tier 4).", act: 5 },
 ];
 
 export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
-  currentAct: 1 | 2 | 3 | 4;
+  currentAct: ActNumber;
   isRunning: boolean;
   onScenario: (scenario: ScenarioId) => void;
   onTryIt: () => void;
@@ -33,7 +35,7 @@ export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
             {s.label}
           </Btn>
         ))}
-        <Btn small primary={currentAct === 4} onClick={onTryIt} disabled={isRunning}>
+        <Btn small primary={currentAct === 6} onClick={onTryIt} disabled={isRunning}>
           Try It
         </Btn>
       </div>
@@ -43,7 +45,7 @@ export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
   return (
     <div style={{
       width: 220, borderRight: `1px solid ${t.cardBorder}40`,
-      padding: "24px 20px", display: "flex", flexDirection: "column", gap: 16,
+      padding: "24px 20px", display: "flex", flexDirection: "column", gap: 12,
       background: `${t.card}CC`, backdropFilter: "blur(8px)",
     }}>
       <span style={{
@@ -69,7 +71,7 @@ export function ControlPanel({ currentAct, isRunning, onScenario, onTryIt }: {
       <ScenarioButton
         label="Try It Yourself"
         desc="Register, verify, run the full pipeline."
-        active={currentAct === 4}
+        active={currentAct === 6}
         disabled={isRunning}
         onClick={onTryIt}
         primary

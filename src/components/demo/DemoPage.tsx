@@ -12,9 +12,9 @@ import { LiveTerminal } from "./LiveTerminal";
 import { ResultCard } from "./ResultCard";
 import { demoReducer, initialDemoState } from "./types";
 import type { ThemeMode } from "../shared/theme";
-import type { ScenarioId } from "./types";
+import type { ScenarioId, ActNumber } from "./types";
 
-// Lazy-load TryItFlow (heavy: viem + idkit) — only compiled when Act 4 is active
+// Lazy-load TryItFlow (heavy: viem + idkit) — only compiled when Act 6 is active
 const TryItFlow = dynamic(() => import("./TryItFlow").then(m => ({ default: m.TryItFlow })), {
   ssr: false,
   loading: () => <div style={{ padding: 24, opacity: 0.5 }}>Loading wallet tools...</div>,
@@ -43,8 +43,9 @@ export default function DemoPage() {
     dispatch({ type: "SET_RUNNING", isRunning: true });
 
     // Set act based on scenario
-    const actMap: Record<string, 1 | 2 | 3 | 4> = {
-      "anon-bot": 1, "registered-bot": 2, "verified-agent": 3, "try-it": 4,
+    const actMap: Record<string, ActNumber> = {
+      "anon-bot": 1, "registered-bot": 2, "verified-agent": 3,
+      "kyc-agent": 4, "credit-agent": 5, "try-it": 6,
     };
     dispatch({ type: "SET_ACT", act: actMap[scenario] || 1 });
 
@@ -97,14 +98,15 @@ export default function DemoPage() {
     dispatch({ type: "SET_RUNNING", isRunning: false });
   }, [presentMode]);
 
-  const handleActChange = useCallback((act: 1 | 2 | 3 | 4) => {
+  const handleActChange = useCallback((act: ActNumber) => {
     dispatch({ type: "SET_ACT", act });
     if (presentMode) {
       // In presentation mode, auto-run scenario when switching acts
       const scenarioMap: Record<number, ScenarioId> = {
         1: "anon-bot", 2: "registered-bot", 3: "verified-agent",
+        4: "kyc-agent", 5: "credit-agent",
       };
-      if (act <= 3) {
+      if (act <= 5) {
         runScenario(scenarioMap[act]);
       }
     }
@@ -116,7 +118,7 @@ export default function DemoPage() {
 
   const handleTryIt = useCallback(() => {
     dispatch({ type: "RESET_PIPELINE" });
-    dispatch({ type: "SET_ACT", act: 4 });
+    dispatch({ type: "SET_ACT", act: 6 });
     dispatch({ type: "SET_SCENARIO", scenario: "try-it" });
   }, []);
 
@@ -124,16 +126,17 @@ export default function DemoPage() {
   useEffect(() => {
     if (!presentMode) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight" && state.act < 4) {
-        handleActChange((state.act + 1) as 1 | 2 | 3 | 4);
+      if (e.key === "ArrowRight" && state.act < 6) {
+        handleActChange((state.act + 1) as ActNumber);
       } else if (e.key === "ArrowLeft" && state.act > 1) {
-        handleActChange((state.act - 1) as 1 | 2 | 3 | 4);
+        handleActChange((state.act - 1) as ActNumber);
       } else if (e.key === " " && !state.isRunning) {
         e.preventDefault();
         const scenarioMap: Record<number, ScenarioId> = {
           1: "anon-bot", 2: "registered-bot", 3: "verified-agent",
+          4: "kyc-agent", 5: "credit-agent",
         };
-        if (state.act <= 3) runScenario(scenarioMap[state.act]);
+        if (state.act <= 5) runScenario(scenarioMap[state.act]);
       }
     };
     window.addEventListener("keydown", handler);
@@ -171,7 +174,7 @@ export default function DemoPage() {
           animation: "actFadeIn .25s ease-out",
         }}>
           {/* Left: Control Panel or Try It */}
-          {state.act === 4 ? (
+          {state.act === 6 ? (
             <div style={{
               width: mobile ? "100%" : 280,
               borderRight: mobile ? "none" : `1px solid ${t.cardBorder}40`,
