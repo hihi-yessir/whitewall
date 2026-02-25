@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>World ID Staging Test</title>
+  <style>
+    body { font-family: system-ui; max-width: 500px; margin: 60px auto; padding: 20px; }
+    button { padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 8px; border: 2px solid #333; background: #fff; }
+    button:hover { background: #f0f0f0; }
+    pre { background: #f5f5f5; padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
+    .status { margin: 16px 0; padding: 12px; border-radius: 8px; word-break: break-all; }
+    .ok { background: #d4edda; color: #155724; }
+    .err { background: #f8d7da; color: #721c24; }
+    .info { background: #d1ecf1; color: #0c5460; }
+  </style>
+</head>
+<body>
+  <h2>World ID Staging Test</h2>
+  <p>Minimal test — no wallet, no contracts, just IDKit + simulator.</p>
+
+  <div>
+    <strong>App ID:</strong> <code>app_staging_dae27f9b14a30e0e0917797aceac795a</code><br>
+    <strong>Action:</strong> <code>test-action</code><br>
+    <strong>Level:</strong> <code>device</code>
+  </div>
+
+  <br>
+  <button id="verify-btn">Open World ID</button>
+
+  <div id="log"></div>
+
+  <script type="module">
+    const APP_ID = "app_staging_0e867ce76678cfaa38986e79c6153f54";
+    const ACTION = "test-action";
+
+    function log(msg, type) {
+      const d = document.createElement("div");
+      d.className = "status " + type;
+      d.textContent = msg;
+      document.getElementById("log").appendChild(d);
+    }
+
+    try {
+      log("Loading IDKit from CDN...", "info");
+      await import("https://esm.sh/@worldcoin/idkit-standalone@1.3.0");
+      log("IDKit loaded successfully", "ok");
+    } catch (e) {
+      log("Failed to load IDKit: " + e.message, "err");
+    }
+
+    IDKit.init({
+      app_id: APP_ID,
+      action: ACTION,
+      verification_level: "device",
+      handleVerify: (proof) => {
+        log("SUCCESS — proof received!", "ok");
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(proof, null, 2);
+        document.getElementById("log").appendChild(pre);
+      },
+      onError: (error) => {
+        log("ERROR from IDKit: " + JSON.stringify(error), "err");
+      },
+      onSuccess: (result) => {
+        log("onSuccess — verification complete!", "ok");
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(result, null, 2);
+        document.getElementById("log").appendChild(pre);
+      },
+    });
+
+    log("IDKit initialized — ready to open", "info");
+
+    document.getElementById("verify-btn").addEventListener("click", async () => {
+      log("Opening IDKit widget...", "info");
+      await IDKit.open();
+    });
+  </script>
+</body>
+</html>

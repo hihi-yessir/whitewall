@@ -325,10 +325,10 @@ function PipelineSection() {
   const steps = [
     { step: "G1", title: "Identity", desc: "EVMClient.read \u2192 IdentityRegistry. Is this agent registered with an ERC-8004 NFT?" },
     { step: "G2", title: "Verification", desc: "EVMClient.read \u2192 WorldIDValidator. Is the owner human-verified via World ID ZK proof?" },
-    { step: "G3", title: "Liveness", desc: "EVMClient.read \u2192 Verification TTL. Is the human bond still valid and not expired?" },
-    { step: "G4", title: "Reputation", desc: "EVMClient.read \u2192 ReputationRegistry. What tier is this agent? Does it meet the minimum service requirement?" },
+    { step: "G3", title: "KYC", desc: "EVMClient.read \u2192 StripeKYCValidator via Confidential HTTP. Has the owner completed KYC?" },
+    { step: "G4", title: "Credit", desc: "EVMClient.read \u2192 PlaidCreditValidator via Confidential HTTP. Does the owner meet the minimum credit score?" },
     { step: "DON", title: "Consensus", desc: "3/5 DON nodes reach consensus on the verification report. Signed report submitted on-chain." },
-    { step: "ACE", title: "Policy", desc: "runPolicy() \u2014 HumanVerifiedPolicy enforces the final on-chain safety check. Approve or reject." },
+    { step: "ACE", title: "Policy", desc: "runPolicy() \u2014 TieredPolicy enforces the final on-chain safety check. Approve or reject." },
   ];
   return (
     <section id="pipeline" ref={ref as React.RefObject<HTMLElement>}
@@ -400,12 +400,12 @@ const appCode: Record<AppLang, CodeBlock> = {
       { text: '    chain: "baseSepolia",', color: "string" },
       { text: "});", color: "default" },
       { text: "" },
-      { text: "const status = await wos.getAgentStatus(", color: "default" },
+      { text: "const status = await wos.getFullStatus(", color: "default" },
       { text: "    agentId", color: "blue" },
       { text: ");", color: "default" },
       { text: "" },
-      { text: "if (status.isHumanVerified) {", color: "keyword" },
-      { text: "    // Agent is accountable", color: "muted" },
+      { text: "if (status.effectiveTier >= 2) {", color: "keyword" },
+      { text: "    // Agent is human-verified", color: "muted" },
       { text: "}", color: "default" },
     ],
   },
@@ -456,17 +456,18 @@ const solidityModifiers = [
 ];
 
 const appMethods = [
-  { name: "getAgentStatus", desc: "Full status — registration, human verification, tier, owner, wallet, validation count.", sig: "(agentId)" },
+  { name: "getFullStatus", desc: "Full status — registration, human verification, KYC, credit score, effective tier.", sig: "(agentId)" },
   { name: "isHumanVerified", desc: "Quick boolean — does this agent have an accountable human?", sig: "(agentId)" },
+  { name: "isKYCVerified", desc: "Check if the agent's owner has completed KYC via StripeKYCValidator.", sig: "(agentId)" },
+  { name: "getCreditScore", desc: "Retrieve the agent owner's credit score from PlaidCreditValidator.", sig: "(agentId)" },
   { name: "isRegistered", desc: "Check if an agent exists in the IdentityRegistry.", sig: "(agentId)" },
-  { name: "getValidationSummary", desc: "Validation count and average score for an agent.", sig: "(agentId)" },
   { name: "onAccessGranted", desc: "Watch for real-time AccessGranted events on-chain.", sig: "(callback)" },
 ];
 
 const mcpTools = [
   { name: "whitewall_os_check_agent", desc: "Quick check — is this agent registered and human-verified?", sig: "(agentId)" },
   { name: "whitewall_os_get_status", desc: "Full report — registration, tier, owner, wallet, validations.", sig: "(agentId)" },
-  { name: "whitewall_os_get_policy", desc: "Read protocol policy from chain — registries, validators, required tier.", sig: "()" },
+  { name: "whitewall_os_get_policy", desc: "Read TieredPolicy config from chain — validators, minCreditScore, tier thresholds.", sig: "()" },
 ];
 
 // CodeViewer imported from shared/theme

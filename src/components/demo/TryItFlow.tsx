@@ -32,14 +32,34 @@ import { identityRegistryAbi, worldIdValidatorAbi, addresses } from "@whitewall-
 
 const WORLD_ID_APP = "app_staging_dae27f9b14a30e0e0917797aceac795a";
 const WORLD_ID_ACTION_PREFIX = "verify-owner-";
-const WORLD_ID_VALIDATOR_ADDR = "0x1258F013d1BA690Dc73EA89Fd48F86E86AD0f124";
 
-type FlowStep = "connect" | "register" | "approve" | "verify" | "request" | "generate" | "done";
+type FlowStep =
+  // Phase 1 — Owner Setup
+  | "connect" | "register" | "approve" | "verify" | "agent-ready"
+  // Phase 2 — Watch Your Agent
+  | "prompt" | "watching" | "done";
+
+const PHASE1_STEPS = [
+  { key: "connect" as const, label: "Connect" },
+  { key: "register" as const, label: "Register" },
+  { key: "approve" as const, label: "Approve" },
+  { key: "verify" as const, label: "Verify" },
+];
+
+const PHASE2_STEPS = [
+  { key: "prompt" as const, label: "Prompt" },
+  { key: "watching" as const, label: "Agent" },
+  { key: "done" as const, label: "Done" },
+];
+
+function isPhase2(step: FlowStep) {
+  return step === "agent-ready" || step === "prompt" || step === "watching" || step === "done";
+}
 
 export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, generation }: {
   dispatch: Dispatch<DemoAction>;
   wallet: { connected: boolean; address?: string };
-  agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean };
+  agent: { id?: bigint; isRegistered: boolean; isApproved: boolean; isHumanVerified: boolean; agentWallet?: string; agentFunded?: boolean };
   prompt: string;
   isGenerating: boolean;
   generation?: GenerationResult;
@@ -50,10 +70,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [idkitReady, setIdkitReady] = useState(false);
-  const [showIDKit, setShowIDKit] = useState(false);
 
-  // Re-derive identity registry address (read from SDK policy config would be ideal,
-  // but for demo we use the known Base Sepolia address)
   const [identityRegistry, setIdentityRegistry] = useState<string | null>(null);
   const [worldIdValidator, setWorldIdValidator] = useState<string | null>(null);
 
@@ -61,6 +78,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
     dispatch({ type: "ADD_TERMINAL", entry: { tag, message, status, timestamp: Date.now() } });
   }, [dispatch]);
 
+  // ── Phase 1: Connect Wallet ──
   const connectWallet = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -68,7 +86,6 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       if (!(window as any).ethereum) throw new Error("No wallet detected. Install MetaMask.");
       const [account] = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
 
-      // Switch to Base Sepolia
       try {
         await (window as any).ethereum.request({
           method: "wallet_switchEthereumChain",
@@ -94,12 +111,12 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
 
       // Load policy config
       const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
-      const { humanVerifiedPolicyAbi } = await import("@whitewall-os/sdk");
-      const policyAddr = addresses.baseSepolia.humanVerifiedPolicy;
+      const { tieredPolicyAbi } = await import("@whitewall-os/sdk");
+      const policyAddr = addresses.baseSepolia.tieredPolicy;
 
       const [idReg, validator] = await Promise.all([
-        publicClient.readContract({ address: policyAddr, abi: humanVerifiedPolicyAbi, functionName: "getIdentityRegistry" }),
-        publicClient.readContract({ address: policyAddr, abi: humanVerifiedPolicyAbi, functionName: "getWorldIdValidator" }),
+        publicClient.readContract({ address: policyAddr, abi: tieredPolicyAbi, functionName: "getIdentityRegistry" }),
+        publicClient.readContract({ address: policyAddr, abi: tieredPolicyAbi, functionName: "getWorldIdValidator" }),
       ]);
       setIdentityRegistry(idReg as string);
       setWorldIdValidator(validator as string);
@@ -114,6 +131,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
     }
   }, [dispatch, addLog]);
 
+  // ── Phase 1: Register Agent ──
   const registerAgent = useCallback(async () => {
     if (!wallet.address || !identityRegistry) return;
     setLoading(true);
@@ -137,7 +155,6 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       addLog("TX", `Waiting for confirmation: ${hash.slice(0, 10)}...`, "info");
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
-      // Parse Transfer event to get agentId
       const transferLogs = parseEventLogs({
         abi: identityRegistryAbi,
         logs: receipt.logs,
@@ -147,7 +164,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       if (transferLogs.length > 0) {
         const agentId = (transferLogs[0] as any).args.tokenId as bigint;
         dispatch({ type: "SET_AGENT", agent: { id: agentId, isRegistered: true } });
-        addLog("REGISTER", `Agent #${agentId.toString()} registered successfully`, "pass");
+        addLog("REGISTER", `Agent #${agentId.toString()} registered (ERC-8004 NFT minted)`, "pass");
         setStep("approve");
       } else {
         throw new Error("Transfer event not found in receipt");
@@ -161,6 +178,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
     }
   }, [wallet, identityRegistry, dispatch, addLog]);
 
+  // ── Phase 1: Approve Validator ──
   const approveValidator = useCallback(async () => {
     if (!wallet.address || !identityRegistry || !worldIdValidator || !agent.id) return;
     setLoading(true);
@@ -187,7 +205,6 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       dispatch({ type: "SET_AGENT", agent: { isApproved: true } });
       addLog("APPROVE", "WorldIDValidator approved for this agent", "pass");
 
-      // Pre-load IDKit
       await loadIDKit();
       setIdkitReady(true);
       setStep("verify");
@@ -200,6 +217,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
     }
   }, [wallet, identityRegistry, worldIdValidator, agent.id, dispatch, addLog]);
 
+  // ── Phase 1: World ID Verify + Auto Agent Wallet ──
   const handleWorldIDVerify = useCallback(async (result: any) => {
     if (!wallet.address || !worldIdValidator || !agent.id) return;
     setLoading(true);
@@ -234,7 +252,32 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       if (receipt.status === "success") {
         dispatch({ type: "SET_AGENT", agent: { isHumanVerified: true } });
         addLog("WORLD ID", "Human verification tag set on-chain!", "pass");
-        setStep("request");
+
+        // Auto: Create agent wallet + fund with USDC
+        addLog("AGENT", "Creating autonomous agent wallet...", "info");
+        try {
+          const walletResp = await fetch("/api/agent-wallet", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agentId: agent.id.toString(), ownerAddress: wallet.address }),
+          });
+          const walletData = await walletResp.json();
+          if (walletResp.ok) {
+            dispatch({ type: "SET_AGENT", agent: { agentWallet: walletData.address, agentFunded: walletData.funded } });
+            addLog("AGENT", `Agent wallet created: ${walletData.address.slice(0, 10)}...`, "pass");
+            if (walletData.funded) {
+              addLog("FAUCET", `${walletData.amount} USDC funded to agent wallet (tx: ${walletData.txHash?.slice(0, 10)}...)`, "pass");
+            } else {
+              addLog("FAUCET", "USDC funding unavailable \u2014 agent wallet created without balance", "warn");
+            }
+          } else {
+            addLog("AGENT", `Wallet creation failed: ${walletData.error}`, "warn");
+          }
+        } catch {
+          addLog("AGENT", "Wallet creation unavailable \u2014 continuing without autonomous wallet", "warn");
+        }
+
+        setStep("agent-ready");
       } else {
         throw new Error("Transaction reverted");
       }
@@ -244,72 +287,19 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       addLog("WORLD ID", msg, "fail");
     } finally {
       setLoading(false);
-      setShowIDKit(false);
     }
   }, [wallet, worldIdValidator, agent.id, dispatch, addLog]);
 
-  const requestAccess = useCallback(async () => {
-    // Trigger the verified-agent simulation with real agent data
-    dispatch({ type: "SET_SCENARIO", scenario: "try-it" });
-    dispatch({ type: "SET_RUNNING", isRunning: true });
-
-    addLog("DEMO", `Running pipeline simulation for agent #${agent.id?.toString() || "?"}...`, "info");
-
-    try {
-      const resp = await fetch(`/api/simulate?scenario=verified-agent`);
-      const reader = resp.body?.getReader();
-      if (!reader) return;
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = JSON.parse(line.slice(6));
-
-          if (data.type === "done") {
-            dispatch({ type: "SET_RUNNING", isRunning: false });
-            setStep("generate");
-            return;
-          }
-          if (data.type === "step") {
-            dispatch({ type: "UPDATE_STEP", stepId: data.stepId, status: data.status, detail: data.detail, timing: data.timing });
-          }
-          if (data.type === "terminal") {
-            dispatch({ type: "ADD_TERMINAL", entry: { tag: data.tag, message: data.message, status: data.termStatus, timestamp: Date.now() } });
-          }
-          if (data.type === "result") {
-            dispatch({ type: "SET_RESULT", result: data.result });
-          }
-          if (data.skipAfter) {
-            dispatch({ type: "SKIP_REMAINING", afterStepId: data.skipAfter });
-          }
-        }
-      }
-    } catch (err: any) {
-      addLog("ERROR", err.message || "Simulation failed", "fail");
-    }
-    dispatch({ type: "SET_RUNNING", isRunning: false });
-  }, [agent.id, dispatch, addLog]);
-
-  const handleGenerate = useCallback(async () => {
+  // ── Phase 2: Send prompt to agent ──
+  const handleSendToAgent = useCallback(async () => {
     if (!prompt.trim() || !wallet.address || !agent.id) return;
     dispatch({ type: "RESET_PIPELINE" });
     dispatch({ type: "SET_GENERATING", isGenerating: true });
     dispatch({ type: "SET_RUNNING", isRunning: true });
-
-    addLog("GENERATE", `Requesting image: "${prompt.slice(0, 60)}${prompt.length > 60 ? "..." : ""}"`, "info");
+    setStep("watching");
 
     try {
-      const resp = await fetch("/api/generate", {
+      const resp = await fetch("/api/agent-generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -378,51 +368,95 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
     setStep("done");
   }, [prompt, wallet.address, agent.id, dispatch, addLog]);
 
-  const flowSteps: { key: FlowStep; label: string; num: number }[] = [
-    { key: "connect", label: "Connect", num: 1 },
-    { key: "register", label: "Register", num: 2 },
-    { key: "approve", label: "Approve", num: 3 },
-    { key: "verify", label: "Verify", num: 4 },
-    { key: "request", label: "Pipeline", num: 5 },
-    { key: "generate", label: "Generate", num: 6 },
-  ];
+  // ── Reset ──
+  const handleStartOver = useCallback(() => {
+    setStep("connect");
+    setError(null);
+    setIdentityRegistry(null);
+    setWorldIdValidator(null);
+    setIdkitReady(false);
+    dispatch({ type: "RESET_PIPELINE" });
+    dispatch({ type: "SET_WALLET", wallet: { connected: false } });
+    dispatch({ type: "SET_AGENT", agent: { id: undefined, isRegistered: false, isApproved: false, isHumanVerified: false, agentWallet: undefined, agentFunded: undefined } });
+  }, [dispatch]);
 
-  const currentIdx = flowSteps.findIndex(f => f.key === step);
+  // Determine phase
+  const phase2Active = isPhase2(step);
+  const phase1Idx = PHASE1_STEPS.findIndex(s => s.key === step);
+  const phase2Idx = PHASE2_STEPS.findIndex(s => s.key === step);
 
   return (
     <div style={{
       padding: mobile ? "16px" : "24px 20px",
       display: "flex", flexDirection: "column", gap: 16,
     }}>
-      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: t.blue, textTransform: "uppercase" }}>
-        Try It Yourself
-      </span>
-
-      {/* Progress steps */}
-      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-        {flowSteps.map((fs, i) => (
-          <div key={fs.key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: 12, fontSize: 10, fontWeight: 800,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: i < currentIdx ? t.green : i === currentIdx ? t.blue : `${t.cardBorder}60`,
-              color: i <= currentIdx ? "#fff" : t.inkMuted,
-              transition: "all .3s",
-            }}>
-              {i < currentIdx ? "\u2713" : fs.num}
-            </div>
-            {i < flowSteps.length - 1 && (
+      {/* ── Phase 1 Header + Progress ── */}
+      <div>
+        <span style={{
+          fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+          color: phase2Active ? t.green : t.blue,
+        }}>
+          {phase2Active ? "\u2713 Phase 1: Owner Setup" : "Phase 1: Owner Setup"}
+        </span>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6 }}>
+          {PHASE1_STEPS.map((fs, i) => (
+            <div key={fs.key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <div style={{
-                width: mobile ? 8 : 16, height: 2,
-                background: i < currentIdx ? t.green : t.cardBorder,
-                transition: "background .3s",
-              }} />
-            )}
-          </div>
-        ))}
+                width: 20, height: 20, borderRadius: 10, fontSize: 9, fontWeight: 800,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: phase2Active || i < phase1Idx ? t.green : i === phase1Idx ? t.blue : `${t.cardBorder}60`,
+                color: phase2Active || i <= phase1Idx ? "#fff" : t.inkMuted,
+                transition: "all .3s",
+              }}>
+                {phase2Active || i < phase1Idx ? "\u2713" : i + 1}
+              </div>
+              {i < PHASE1_STEPS.length - 1 && (
+                <div style={{
+                  width: mobile ? 6 : 12, height: 2,
+                  background: phase2Active || i < phase1Idx ? t.green : t.cardBorder,
+                  transition: "background .3s",
+                }} />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Current step action */}
+      {/* ── Phase 2 Header + Progress ── */}
+      {phase2Active && (
+        <div>
+          <span style={{
+            fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+            color: step === "done" ? t.green : t.blue,
+          }}>
+            {step === "done" ? "\u2713 Phase 2: Your Agent" : "Phase 2: Your Agent"}
+          </span>
+          <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6 }}>
+            {PHASE2_STEPS.map((fs, i) => (
+              <div key={fs.key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{
+                  width: 20, height: 20, borderRadius: 10, fontSize: 9, fontWeight: 800,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: i < phase2Idx ? t.green : i === phase2Idx ? t.blue : `${t.cardBorder}60`,
+                  color: i <= phase2Idx ? "#fff" : t.inkMuted,
+                  transition: "all .3s",
+                }}>
+                  {i < phase2Idx ? "\u2713" : i + 1}
+                </div>
+                {i < PHASE2_STEPS.length - 1 && (
+                  <div style={{
+                    width: mobile ? 6 : 12, height: 2,
+                    background: i < phase2Idx ? t.green : t.cardBorder,
+                    transition: "background .3s",
+                  }} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Current Step Card ── */}
       <div style={{
         padding: "16px", borderRadius: 10,
         border: `1.5px solid ${t.cardBorder}`,
@@ -443,6 +477,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
           </div>
         )}
 
+        {/* Phase 1: Connect */}
         {step === "connect" && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Connect Your Wallet</div>
@@ -455,6 +490,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
           </div>
         )}
 
+        {/* Phase 1: Register */}
         {step === "register" && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Register Agent</div>
@@ -467,6 +503,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
           </div>
         )}
 
+        {/* Phase 1: Approve */}
         {step === "approve" && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Approve WorldID Validator</div>
@@ -479,28 +516,27 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
           </div>
         )}
 
+        {/* Phase 1: Verify */}
         {step === "verify" && (
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Verify with World ID</div>
             <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 16, lineHeight: 1.5 }}>
-              Prove you are a unique human using World ID zero-knowledge proof.
+              Prove you are a unique human. After verification, an agent wallet will be created and funded automatically.
             </div>
             {idkitReady && IDKitWidget ? (
-              <>
-                <IDKitWidget
-                  app_id={WORLD_ID_APP}
-                  action={`${WORLD_ID_ACTION_PREFIX}${agent.id?.toString() || "0"}`}
-                  handleVerify={handleWorldIDVerify}
-                  verification_level={VerificationLevel.Device}
-                  signal={wallet.address || "0x0"}
-                >
-                  {({ open }: { open: () => void }) => (
-                    <Btn primary small onClick={() => { setShowIDKit(true); open(); }} disabled={loading}>
-                      {loading ? "Verifying..." : "Open World ID"}
-                    </Btn>
-                  )}
-                </IDKitWidget>
-              </>
+              <IDKitWidget
+                app_id={WORLD_ID_APP}
+                action={`${WORLD_ID_ACTION_PREFIX}${agent.id?.toString() || "0"}`}
+                handleVerify={handleWorldIDVerify}
+                verification_level={VerificationLevel.Device}
+                signal={wallet.address || "0x0"}
+              >
+                {({ open }: { open: () => void }) => (
+                  <Btn primary small onClick={open} disabled={loading}>
+                    {loading ? "Verifying..." : "Open World ID"}
+                  </Btn>
+                )}
+              </IDKitWidget>
             ) : (
               <Btn primary small onClick={async () => { await loadIDKit(); setIdkitReady(true); }} disabled={loading}>
                 {loading ? "Loading..." : "Load World ID Widget"}
@@ -509,29 +545,61 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
           </div>
         )}
 
-        {step === "request" && (
+        {/* Phase 1 Complete → Agent Ready */}
+        {step === "agent-ready" && (
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Request Access</div>
-            <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 16, lineHeight: 1.5 }}>
-              Your agent #{agent.id?.toString()} is fully verified. Run it through the pipeline.
+            <div style={{
+              fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+              color: t.green, marginBottom: 10,
+            }}>
+              Agent Ready
             </div>
-            <Btn primary small onClick={requestAccess} disabled={loading}>
-              {loading ? "Running..." : "Run Pipeline"}
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+              Agent #{agent.id?.toString()} is set up
+            </div>
+            <div style={{
+              padding: "10px 12px", borderRadius: 8, fontSize: 11,
+              fontFamily: "'SF Mono','Fira Code',monospace",
+              background: `${t.codeBg}CC`, border: `1px solid ${t.cardBorder}40`,
+              color: t.inkMuted, lineHeight: 1.8, marginBottom: 14,
+            }}>
+              <div>owner: <span style={{ color: t.ink }}>{wallet.address?.slice(0, 10)}...</span></div>
+              <div>agentId: <span style={{ color: t.blue }}>#{agent.id?.toString()}</span></div>
+              <div>humanVerified: <span style={{ color: t.green }}>true</span></div>
+              {agent.agentWallet && (
+                <div>agentWallet: <span style={{ color: t.ink }}>{agent.agentWallet.slice(0, 10)}...</span></div>
+              )}
+              <div>balance: <span style={{ color: agent.agentFunded ? t.green : t.red }}>
+                {agent.agentFunded ? "1.00 USDC" : "0 USDC"}
+              </span></div>
+            </div>
+            <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 16, lineHeight: 1.5 }}>
+              Your agent has its own wallet and can pay for resources autonomously via x402.
+              Enter a prompt and watch it operate.
+            </div>
+            <Btn primary small onClick={() => {
+              dispatch({ type: "RESET_PIPELINE" });
+              dispatch({ type: "CLEAR_TERMINAL" });
+              setStep("prompt");
+            }}>
+              Enter Phase 2
             </Btn>
           </div>
         )}
 
-        {step === "generate" && (
+        {/* Phase 2: Prompt */}
+        {step === "prompt" && (
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Passed</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Send Task to Agent</div>
             <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
-              Agent #{agent.id?.toString()} cleared all gates. Now generate an image — it will be permanently tagged with a license plate.
+              Your agent will autonomously pay via x402 and generate an image.
+              No MetaMask popups {"\u2014"} the agent signs with its own key.
             </div>
             <input
               type="text"
               value={prompt}
               onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
-              onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating) handleGenerate(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating) handleSendToAgent(); }}
               placeholder="Describe an image..."
               disabled={isGenerating}
               style={{
@@ -541,12 +609,32 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
                 boxSizing: "border-box",
               }}
             />
-            <Btn primary small onClick={handleGenerate} disabled={isGenerating || !prompt.trim()}>
-              {isGenerating ? "Generating..." : "Generate Image"}
+            <Btn primary small onClick={handleSendToAgent} disabled={isGenerating || !prompt.trim()}>
+              Send to Agent
             </Btn>
           </div>
         )}
 
+        {/* Phase 2: Watching */}
+        {step === "watching" && (
+          <div>
+            <div style={{
+              fontSize: 14, fontWeight: 700, marginBottom: 8,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{
+                display: "inline-block", width: 8, height: 8, borderRadius: 4,
+                background: t.blue, animation: "demoPulse 1.5s ease-in-out infinite",
+              }} />
+              Agent Operating
+            </div>
+            <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5 }}>
+              Agent #{agent.id?.toString()} is paying via x402 and generating autonomously. Watch the pipeline and terminal.
+            </div>
+          </div>
+        )}
+
+        {/* Phase 2: Done */}
         {step === "done" && (
           <div>
             {generation ? (
@@ -574,6 +662,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
                   <div>agent: <span style={{ color: t.blue }}>#{generation.agentId}</span></div>
                   <div>owner: <span style={{ color: t.ink }}>{generation.ownerAddress.slice(0, 6)}...{generation.ownerAddress.slice(-4)}</span></div>
                   <div>prompt: <span style={{ color: t.ink }}>{generation.prompt.slice(0, 50)}{generation.prompt.length > 50 ? "..." : ""}</span></div>
+                  <div>payment: <span style={{ color: t.green }}>$0.10 USDC (x402)</span></div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Btn small href="/feed" style={{ fontSize: 12 }}>View on Feed</Btn>
@@ -581,9 +670,10 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
                     dispatch({ type: "SET_GENERATION", generation: undefined });
                     dispatch({ type: "SET_PROMPT", prompt: "" });
                     dispatch({ type: "RESET_PIPELINE" });
-                    setStep("generate");
+                    dispatch({ type: "CLEAR_TERMINAL" });
+                    setStep("prompt");
                   }} style={{ fontSize: 12 }}>
-                    Generate Another
+                    Send Another
                   </Btn>
                 </div>
               </>
@@ -591,21 +681,12 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
               <>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: t.green }}>Pipeline Complete</div>
                 <div style={{ fontSize: 12, color: t.inkMuted, lineHeight: 1.5, marginBottom: 16 }}>
-                  Agent #{agent.id?.toString()} passed all gates. Check the pipeline visualization above.
+                  Agent #{agent.id?.toString()} completed its task. Check the pipeline above.
                 </div>
               </>
             )}
             <div style={{ marginTop: 12 }}>
-              <Btn small onClick={() => {
-                setStep("connect");
-                setError(null);
-                setIdentityRegistry(null);
-                setWorldIdValidator(null);
-                setIdkitReady(false);
-                dispatch({ type: "RESET_PIPELINE" });
-                dispatch({ type: "SET_WALLET", wallet: { connected: false } });
-                dispatch({ type: "SET_AGENT", agent: { id: undefined, isRegistered: false, isApproved: false, isHumanVerified: false } });
-              }} style={{ fontSize: 12 }}>
+              <Btn small onClick={handleStartOver} style={{ fontSize: 12 }}>
                 Start Over
               </Btn>
             </div>
@@ -614,7 +695,7 @@ export function TryItFlow({ dispatch, wallet, agent, prompt, isGenerating, gener
       </div>
 
       {/* Agent status summary */}
-      {wallet.connected && (
+      {wallet.connected && !phase2Active && (
         <div style={{
           padding: "12px 16px", borderRadius: 8,
           background: `${t.card}80`, border: `1px solid ${t.cardBorder}40`,

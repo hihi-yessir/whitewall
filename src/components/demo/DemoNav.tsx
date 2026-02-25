@@ -3,17 +3,20 @@
 import { useContext } from "react";
 import { ThemeCtx, ThemeToggle } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
+import type { ActNumber } from "./types";
 
-const acts = [
-  { num: 1 as const, label: "The Threat" },
-  { num: 2 as const, label: "The Wall" },
-  { num: 3 as const, label: "The Proof" },
-  { num: 4 as const, label: "Try It" },
+const acts: { num: ActNumber; label: string }[] = [
+  { num: 1, label: "The Threat" },
+  { num: 2, label: "The Wall" },
+  { num: 3, label: "The Proof" },
+  { num: 4, label: "The Identity" },
+  { num: 5, label: "The Trust" },
+  { num: 6, label: "Try It" },
 ];
 
 export function DemoNav({ currentAct, onActChange }: {
-  currentAct: 1 | 2 | 3 | 4;
-  onActChange: (act: 1 | 2 | 3 | 4) => void;
+  currentAct: ActNumber;
+  onActChange: (act: ActNumber) => void;
 }) {
   const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
@@ -46,20 +49,20 @@ export function DemoNav({ currentAct, onActChange }: {
       </a>
 
       {/* Center: act tabs */}
-      <div style={{ display: "flex", gap: mobile ? 2 : 4, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: mobile ? 1 : 3, alignItems: "center" }}>
         {acts.map((act) => {
           const active = currentAct === act.num;
           return (
             <button key={act.num} onClick={() => onActChange(act.num)} style={{
-              padding: mobile ? "6px 10px" : "8px 16px",
+              padding: mobile ? "6px 6px" : "8px 12px",
               border: "none", cursor: "pointer",
               background: active ? `${t.blue}20` : "transparent",
               borderBottom: active ? `2px solid ${t.blue}` : "2px solid transparent",
               color: active ? t.ink : t.inkMuted,
-              fontSize: mobile ? 11 : 12, fontWeight: 700, transition: "all .2s",
+              fontSize: mobile ? 10 : 11, fontWeight: 700, transition: "all .2s",
               borderRadius: "6px 6px 0 0",
             }}>
-              {mobile ? `Act ${act.num}` : `Act ${act.num}: ${act.label}`}
+              {mobile ? act.num : `${act.num}. ${act.label}`}
             </button>
           );
         })}
