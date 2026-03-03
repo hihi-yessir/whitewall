@@ -1,8 +1,8 @@
 export type StepStatus = 'idle' | 'active' | 'pass' | 'fail' | 'skipped';
 
-export type ScenarioId = 'idle' | 'anon-bot' | 'registered-bot' | 'verified-agent' | 'kyc-agent' | 'credit-agent' | 'try-it';
+export type ScenarioId = 'idle' | 'anon-bot' | 'registered-bot' | 'verified-agent' | 'kyc-agent' | 'credit-agent';
 
-export type ActNumber = 1 | 2 | 3 | 4 | 5 | 6;
+export type ActNumber = 1 | 2 | 3 | 4 | 5;
 
 export interface PipelineStepState {
   id: string;
@@ -40,6 +40,7 @@ export interface DemoState {
   prompt: string;
   isGenerating: boolean;
   generation?: GenerationResult;
+  aceExpanded: boolean;
 }
 
 export const PIPELINE_STEPS: PipelineStepState[] = [
@@ -70,7 +71,8 @@ export type DemoAction =
   | { type: 'SET_RESULT'; result: DemoState['result'] }
   | { type: 'SET_PROMPT'; prompt: string }
   | { type: 'SET_GENERATING'; isGenerating: boolean }
-  | { type: 'SET_GENERATION'; generation: GenerationResult | undefined };
+  | { type: 'SET_GENERATION'; generation: GenerationResult | undefined }
+  | { type: 'TOGGLE_ACE_PANEL' };
 
 export function demoReducer(state: DemoState, action: DemoAction): DemoState {
   switch (action.type) {
@@ -88,6 +90,7 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
         prompt: '',
         isGenerating: false,
         generation: undefined,
+        aceExpanded: false,
       };
     case 'UPDATE_STEP':
       return {
@@ -125,6 +128,8 @@ export function demoReducer(state: DemoState, action: DemoAction): DemoState {
       return { ...state, isGenerating: action.isGenerating };
     case 'SET_GENERATION':
       return { ...state, generation: action.generation };
+    case 'TOGGLE_ACE_PANEL':
+      return { ...state, aceExpanded: !state.aceExpanded };
     default:
       return state;
   }
@@ -140,4 +145,5 @@ export const initialDemoState: DemoState = {
   agent: { isRegistered: false, isApproved: false, isHumanVerified: false },
   prompt: '',
   isGenerating: false,
+  aceExpanded: false,
 };

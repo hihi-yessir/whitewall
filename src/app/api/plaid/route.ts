@@ -1,46 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID;
+const PLAID_SECRET = process.env.PLAID_SECRET;
+const PLAID_BASE = "https://sandbox.plaid.com";
+
 /**
- * POST /api/plaid — Create Plaid Link token or exchange public token
- *
- * Actions:
- *   { action: "create-link", agentId } → returns link_token
- *   { action: "exchange", publicToken } → returns access_token (stored server-side)
- *
- * In production, these would call Plaid API.
- * In sandbox/demo mode, we simulate the response.
+ * POST /api/plaid
+ *   { action: "create-link" } → Plaid Link token
  */
 
 export async function POST(request: NextRequest) {
+  if (!PLAID_CLIENT_ID || !PLAID_SECRET) {
+    return NextResponse.json({ error: "Plaid credentials not configured" }, { status: 500 });
+  }
+
   try {
     const body = await request.json();
     const { action } = body;
 
     if (action === "create-link") {
-      const { agentId } = body;
-      if (!agentId) {
-        return NextResponse.json({ error: "agentId required" }, { status: 400 });
-      }
-
-      // Sandbox: simulate Plaid Link token
-      return NextResponse.json({
-        linkToken: `link-sandbox-${agentId}-${Date.now()}`,
-        expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      const res = await fetch(`${PLAID_BASE}/link/token/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: PLAID_CLIENT_ID,
+          secret: PLAID_SECRET,
+          user: { client_user_id: `demo-${Date.now()}` },
+          client_name: "Whitewall",
+          products: ["assets"],
+          country_codes: ["US"],
+          language: "en",
+        }),
       });
-    }
 
-    if (action === "exchange") {
-      const { publicToken } = body;
-      if (!publicToken) {
-        return NextResponse.json({ error: "publicToken required" }, { status: 400 });
+      if (!res.ok) {
+        const err = await res.json();
+        return NextResponse.json({ error: err.error_message || "Plaid API error" }, { status: res.status });
       }
 
-      // Sandbox: simulate token exchange
-      // In production, this stores the access_token in DON vault
+      const data = await res.json();
+
       return NextResponse.json({
-        success: true,
-        accountsConnected: 3,
-        institutionName: "Chase",
+        linkToken: data.link_token,
+        expiration: data.expiration,
       });
     }
 

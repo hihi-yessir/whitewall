@@ -1,14 +1,16 @@
 import { NextRequest } from "next/server";
 import { privateKeyToAccount } from "viem/accounts";
-import { keccak256, toBytes, encodePacked } from "viem";
+import { createPublicClient, http } from "viem";
+import { baseSepolia } from "viem/chains";
 import { getAgentKey } from "@/lib/agent-keys";
+import { USDC_ADDRESS } from "@/lib/contracts";
 import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS } from "@/lib/redis";
 
 const RATE_LIMIT = 3;
 const RATE_WINDOW = 60;
 
-const GATEWAY_URL = process.env.X402_GATEWAY_URL || "https://x402-auth-gateway.vercel.com";
-const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+const GATEWAY_URL = process.env.X402_GATEWAY_URL || "https://x402-auth-gateway.onrender.com";
+const RPC_URL = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
 
 // --- helpers ----------------------------------------------------------------
 
@@ -20,81 +22,37 @@ function shorten(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
-// EIP-712 domain for USDC on Base Sepolia
-const USDC_DOMAIN = {
-  name: "USD Coin",
-  version: "2",
-  chainId: 84532,
-  verifyingContract: USDC_ADDRESS,
-} as const;
-
-const TRANSFER_WITH_AUTH_TYPES = {
-  TransferWithAuthorization: [
-    { name: "from", type: "address" },
-    { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
-    { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
-    { name: "nonce", type: "bytes32" },
-  ],
-} as const;
-
-interface PaymentRequirement {
-  maxAmountRequired: string;
-  resource: string;
-  asset: string;
-  payTo: string;
-  maxTimeoutSeconds: number;
-}
-
 /**
- * Sign an EIP-3009 `transferWithAuthorization` off-chain and return a
- * base64-encoded X-PAYMENT header value.
+ * Build x402-wrapped fetch for a given agent key.
+ * Uses dynamic import since @x402/* are ESM-only.
  */
-async function signEIP3009(
-  agentKey: `0x${string}`,
-  req: PaymentRequirement,
-): Promise<string> {
+async function buildPaymentFetch(agentKey: `0x${string}`) {
+  const { wrapFetchWithPayment } = await import("@x402/fetch");
+  const { x402Client } = await import("@x402/core/client");
+  const { registerExactEvmScheme } = await import("@x402/evm/exact/client");
+  const { toClientEvmSigner } = await import("@x402/evm");
+
   const account = privateKeyToAccount(agentKey);
-  const nonce = keccak256(toBytes(crypto.randomUUID()));
-  const now = Math.floor(Date.now() / 1000);
-  const validBefore = BigInt(now + req.maxTimeoutSeconds);
-
-  const signature = await account.signTypedData({
-    domain: USDC_DOMAIN,
-    types: TRANSFER_WITH_AUTH_TYPES,
-    primaryType: "TransferWithAuthorization",
-    message: {
-      from: account.address,
-      to: req.payTo as `0x${string}`,
-      value: BigInt(req.maxAmountRequired),
-      validAfter: 0n,
-      validBefore,
-      nonce,
-    },
+  const publicClient = createPublicClient({
+    chain: baseSepolia,
+    transport: http(RPC_URL),
   });
 
-  const payload = JSON.stringify({
-    signature,
-    from: account.address,
-    to: req.payTo,
-    value: req.maxAmountRequired,
-    validAfter: "0",
-    validBefore: validBefore.toString(),
-    nonce,
-  });
+  const signer = toClientEvmSigner(account, publicClient);
+  const client = new x402Client();
+  registerExactEvmScheme(client, { signer });
 
-  return btoa(payload);
+  return { fetchWithPayment: wrapFetchWithPayment(fetch, client), signer: account };
 }
 
 /**
- * Async generator that consumes the Gateway SSE job stream and yields parsed
- * events: { type: "progress", progress: number } | { type: "done", imageUrl: string }
+ * Consume the Gateway SSE job stream via fetch.
+ * Yields parsed events: { status, type, artifact_url?, error? }
  */
 async function* streamGatewayJob(
   jobId: string,
   signal: AbortSignal,
-): AsyncGenerator<{ type: string; progress?: number; imageUrl?: string }> {
+): AsyncGenerator<Record<string, unknown>> {
   const res = await fetch(`${GATEWAY_URL}/api/jobs/${jobId}/stream`, { signal });
   if (!res.ok || !res.body) {
     throw new Error(`Gateway stream failed: ${res.status}`);
@@ -147,7 +105,7 @@ export async function POST(request: NextRequest) {
     return new Response(JSON.stringify({ error: "Empty prompt" }), { status: 400 });
   }
 
-  const agentKey = getAgentKey(agentId.toString());
+  const agentKey = await getAgentKey(agentId.toString());
   const agentAddr = agentKey ? privateKeyToAccount(agentKey).address : "0xAgent";
   const agentShort = shorten(agentAddr);
 
@@ -169,7 +127,6 @@ export async function POST(request: NextRequest) {
           send({ type: "terminal", tag: "RATE", message: `Rate limit exceeded (${RATE_LIMIT}/min)`, termStatus: "fail" });
           send({ type: "result", status: "denied", reason: "Rate limit exceeded" });
           send({ type: "done" });
-          controller.close();
           return;
         }
 
@@ -179,81 +136,55 @@ export async function POST(request: NextRequest) {
           send({ type: "terminal", tag: "AGENT", message: "Agent wallet not found — register first", termStatus: "fail" });
           send({ type: "result", status: "denied", reason: "Agent wallet not found" });
           send({ type: "done" });
-          controller.close();
           return;
         }
 
-        // ── C. POST /api/generate (no payment) → 402 ──────────────────
+        // ── C. Build x402 payment-wrapped fetch ────────────────────────
         send({ type: "step", stepId: "agent", status: "active" });
         send({ type: "terminal", tag: "AGENT", message: `Agent #${agentId} received task: "${cleanPrompt.slice(0, 50)}${cleanPrompt.length > 50 ? "..." : ""}"`, termStatus: "info" });
 
+        const { fetchWithPayment, signer } = await buildPaymentFetch(agentKey);
+        send({ type: "terminal", tag: "AGENT", message: `Agent wallet: ${shorten(signer.address)}`, termStatus: "info" });
+
+        // Check agent wallet USDC balance before attempting payment
+        const usdcBalance = await createPublicClient({ chain: baseSepolia, transport: http(RPC_URL) }).readContract({
+          address: USDC_ADDRESS,
+          abi: [{ type: "function", name: "balanceOf", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" }],
+          functionName: "balanceOf",
+          args: [signer.address],
+        }) as bigint;
+        const usdcFormatted = (Number(usdcBalance) / 1e6).toFixed(2);
+        send({ type: "terminal", tag: "AGENT", message: `USDC balance: ${usdcFormatted}`, termStatus: usdcBalance > 0n ? "info" : "fail" });
+        console.log(`[agent-generate] Agent ${signer.address} USDC balance: ${usdcFormatted}`);
+
+        if (usdcBalance === 0n) {
+          send({ type: "step", stepId: "agent", status: "fail", detail: "0 USDC" });
+          send({ type: "terminal", tag: "AGENT", message: "Agent wallet has 0 USDC — cannot pay gateway. Was the wallet funded?", termStatus: "fail" });
+          send({ type: "result", status: "denied", reason: "Agent wallet has 0 USDC" });
+          send({ type: "done" });
+          return;
+        }
+
+        send({ type: "step", stepId: "agent", status: "pass", detail: `${usdcFormatted} USDC`, timing: 500 });
+
+        // ── D. POST /api/generate with auto x402 payment ───────────────
+        send({ type: "step", stepId: "x402", status: "active" });
+        send({ type: "terminal", tag: "x402", message: "Sending request to gateway (x402 SDK handles 402 → sign → retry)...", termStatus: "info" });
+
         const gatewayBody = { prompt: cleanPrompt, agentId, ownerAddress, type: genType };
 
-        const initialRes = await fetch(`${GATEWAY_URL}/api/generate`, {
+        const paidRes = await fetchWithPayment(`${GATEWAY_URL}/api/generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(gatewayBody),
         });
 
-        send({ type: "step", stepId: "agent", status: "pass", detail: "Request sent", timing: 500 });
-
-        if (initialRes.status !== 402) {
-          // Unexpected — gateway should always 402 on first call
-          const errText = await initialRes.text().catch(() => "Unknown error");
-          send({ type: "step", stepId: "x402", status: "fail", detail: `HTTP ${initialRes.status}` });
-          send({ type: "terminal", tag: "x402", message: `Expected 402 but got ${initialRes.status}: ${errText.slice(0, 200)}`, termStatus: "fail" });
-          send({ type: "result", status: "denied", reason: `Gateway error: ${initialRes.status}` });
-          send({ type: "done" });
-          controller.close();
-          return;
-        }
-
-        // Parse 402 PaymentRequirements
-        const paymentRequirements: PaymentRequirement[] = await initialRes.json();
-        const payReq = paymentRequirements[0];
-        if (!payReq) {
-          send({ type: "step", stepId: "x402", status: "fail", detail: "No payment info" });
-          send({ type: "result", status: "denied", reason: "No payment requirements in 402" });
-          send({ type: "done" });
-          controller.close();
-          return;
-        }
-
-        send({ type: "step", stepId: "x402", status: "active" });
-        send({ type: "terminal", tag: "x402", message: "\u2190 402 Payment Required", termStatus: "warn" });
-
-        const usdcAmount = Number(payReq.maxAmountRequired) / 1e6;
-        send({ type: "terminal", tag: "x402", message: `PaymentRequirements: $${usdcAmount.toFixed(2)} USDC via EIP-3009 (Base Sepolia)`, termStatus: "info" });
-        send({ type: "terminal", tag: "x402", message: `Asset: USDC (${shorten(USDC_ADDRESS)}) | PayTo: ${shorten(payReq.payTo)}`, termStatus: "info" });
-
-        // ── D. Sign EIP-3009 ───────────────────────────────────────────
-        send({ type: "terminal", tag: "x402", message: `Signing: ${agentShort} \u2192 ${shorten(payReq.payTo)} ($${usdcAmount.toFixed(2)} USDC)`, termStatus: "info" });
-
-        const xPayment = await signEIP3009(agentKey, payReq);
-
-        send({ type: "terminal", tag: "x402", message: "EIP-3009 transferWithAuthorization signed (off-chain, no gas, no MetaMask)", termStatus: "pass" });
-        send({ type: "step", stepId: "x402", status: "pass", detail: "EIP-3009 signed", timing: 1000 });
-
-        // ── E. POST /api/generate + X-PAYMENT ──────────────────────────
-        send({ type: "step", stepId: "gateway", status: "active" });
-        send({ type: "terminal", tag: "AGENT", message: "Re-sending request with X-PAYMENT header...", termStatus: "info" });
-
-        const paidRes = await fetch(`${GATEWAY_URL}/api/generate`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-PAYMENT": xPayment,
-          },
-          body: JSON.stringify(gatewayBody),
-        });
-
-        if (!paidRes.ok) {
+        if (paidRes.status !== 202) {
           const errBody = await paidRes.json().catch(() => ({ error: "Unknown gateway error" }));
-          const errMsg = errBody.error || errBody.message || `Gateway ${paidRes.status}`;
-          send({ type: "terminal", tag: "GW", message: `Gateway rejected: ${errMsg}`, termStatus: "fail" });
-          send({ type: "step", stepId: "gateway", status: "fail", detail: errMsg.slice(0, 30) });
+          const errMsg = (errBody as Record<string, string>).error || (errBody as Record<string, string>).message || `Gateway ${paidRes.status}`;
+          send({ type: "step", stepId: "x402", status: "fail", detail: `HTTP ${paidRes.status}` });
+          send({ type: "terminal", tag: "x402", message: `Gateway rejected: ${errMsg}`, termStatus: "fail" });
 
-          // Record denied in Redis
           const genId = crypto.randomUUID();
           const deniedEntry = {
             id: genId, prompt: cleanPrompt, imageUrl: "", status: "denied",
@@ -268,84 +199,63 @@ export async function POST(request: NextRequest) {
 
           send({ type: "result", status: "denied", reason: errMsg, id: genId });
           send({ type: "done" });
-          controller.close();
           return;
         }
 
         const gatewayResult = await paidRes.json() as {
-          job_id: string;
+          jobId: string;
           txHash: string;
           status: string;
-          type: string;
-          tier: string;
+          type?: string;
+          tier?: string;
         };
-
-        send({ type: "terminal", tag: "GW", message: "X-PAYMENT verified, gates passed, payment settled", termStatus: "pass" });
-        send({ type: "step", stepId: "gateway", status: "pass", detail: "Payment attached", timing: 700 });
 
         const tier = gatewayResult.tier || "2";
         const txHash = gatewayResult.txHash || "";
 
-        // ── F. Emit synthetic gate/settlement steps ────────────────────
-        // These already happened on the Gateway; we replay them for the UI
+        send({ type: "terminal", tag: "x402", message: "Payment verified + settled on-chain", termStatus: "pass" });
+        send({ type: "terminal", tag: "x402", message: `txHash: ${txHash ? shorten(txHash) : "pending"}`, termStatus: "info" });
+        send({ type: "step", stepId: "x402", status: "pass", detail: "Payment settled", timing: 1500 });
 
-        // Credential verification
-        send({ type: "step", stepId: "cre", status: "active" });
-        send({ type: "terminal", tag: "VERIFY", message: "Facilitator verified EIP-3009 signature", termStatus: "pass" });
+        // ── E. Emit synthetic gate steps (already passed on gateway) ────
+        send({ type: "step", stepId: "gateway", status: "active" });
+        send({ type: "terminal", tag: "GW", message: `Job ${gatewayResult.jobId} accepted — gates passed`, termStatus: "pass" });
+        send({ type: "step", stepId: "gateway", status: "pass", detail: "Accepted", timing: 700 });
+
+        // CRE / Gates
         send({ type: "step", stepId: "cre", status: "pass", detail: "Payment valid", timing: 500 });
-
-        // Gate 1: Identity
-        send({ type: "step", stepId: "gate1", status: "active" });
-        send({ type: "terminal", tag: "GATE 1", message: `Identity: ownerOf(${agentId}) — registered`, termStatus: "pass" });
         send({ type: "step", stepId: "gate1", status: "pass", detail: shorten(ownerAddress), timing: 400 });
-
-        // Gate 2: Human verification
-        send({ type: "step", stepId: "gate2", status: "active" });
-        send({ type: "terminal", tag: "GATE 2", message: `Human: isHumanVerified(${agentId}) — verified`, termStatus: "pass" });
         send({ type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 300 });
+        send({ type: "step", stepId: "gate3", status: "pass", detail: tier === "3" || tier === "4" ? "KYC verified" : "Not required", timing: 200 });
+        send({ type: "step", stepId: "gate4", status: "pass", detail: tier === "4" ? "Credit verified" : "Not required", timing: 150 });
 
-        // Gate 3: KYC
-        send({ type: "step", stepId: "gate3", status: "active" });
-        if (tier === "3" || tier === "4") {
-          send({ type: "terminal", tag: "GATE 3", message: "KYC: StripeKYCValidator — verified", termStatus: "pass" });
-          send({ type: "step", stepId: "gate3", status: "pass", detail: "KYC verified", timing: 200 });
-        } else {
-          send({ type: "terminal", tag: "GATE 3", message: `KYC: StripeKYCValidator — not required for Tier ${tier}`, termStatus: "info" });
-          send({ type: "step", stepId: "gate3", status: "pass", detail: "Not required", timing: 150 });
-        }
-
-        // Gate 4: Credit
-        send({ type: "step", stepId: "gate4", status: "active" });
-        if (tier === "4") {
-          send({ type: "terminal", tag: "GATE 4", message: "Credit: PlaidCreditValidator — verified", termStatus: "pass" });
-          send({ type: "step", stepId: "gate4", status: "pass", detail: "Credit verified", timing: 200 });
-        } else {
-          send({ type: "terminal", tag: "GATE 4", message: `Credit: PlaidCreditValidator — not required for Tier ${tier}`, termStatus: "info" });
-          send({ type: "step", stepId: "gate4", status: "pass", detail: "Not required", timing: 150 });
-        }
+        send({ type: "terminal", tag: "GATE", message: `All gates passed — Tier ${tier}`, termStatus: "pass" });
 
         // Settlement
-        send({ type: "step", stepId: "don", status: "active" });
-        send({ type: "terminal", tag: "SETTLE", message: `txHash: ${txHash ? txHash.slice(0, 14) + "..." : "pending"}`, termStatus: "info" });
-        send({ type: "terminal", tag: "SETTLE", message: `$${usdcAmount.toFixed(2)} USDC transferred (${agentShort} → Gateway)`, termStatus: "pass" });
-        send({ type: "step", stepId: "don", status: "pass", detail: `$${usdcAmount.toFixed(2)} settled`, timing: 900 });
+        send({ type: "step", stepId: "don", status: "pass", detail: txHash ? `settled` : "pending", timing: 900 });
+        send({ type: "terminal", tag: "SETTLE", message: `USDC transferred (${agentShort} → Gateway)`, termStatus: "pass" });
 
-        // ── G. Stream generation progress from Gateway ─────────────────
+        // ── F. Stream generation progress from Gateway ─────────────────
         send({ type: "step", stepId: "ace", status: "active" });
-        send({ type: "terminal", tag: "GEN", message: `Job ${gatewayResult.job_id} started — generating ${genType}...`, termStatus: "info" });
+        send({ type: "terminal", tag: "GEN", message: `Job ${gatewayResult.jobId} — generating ${genType}...`, termStatus: "info" });
 
         const abortController = new AbortController();
         const timeout = setTimeout(() => abortController.abort(), 180_000);
 
-        let imageUrl = "";
+        let artifactUrl = "";
         try {
-          for await (const event of streamGatewayJob(gatewayResult.job_id, abortController.signal)) {
-            if (event.type === "progress") {
-              send({ type: "terminal", tag: "GEN", message: `Progress: ${event.progress}%`, termStatus: "info" });
-            } else if (event.type === "done") {
-              imageUrl = event.imageUrl || "";
-              send({ type: "terminal", tag: "GEN", message: `${genType === "video" ? "Video" : "Image"} generated`, termStatus: "pass" });
+          for await (const event of streamGatewayJob(gatewayResult.jobId, abortController.signal)) {
+            const status = event.status as string;
+
+            if (status === "processing") {
+              send({ type: "terminal", tag: "GEN", message: `Processing ${genType}...`, termStatus: "info" });
+            } else if (status === "completed") {
+              artifactUrl = (event.artifact_url as string) || "";
+              send({ type: "terminal", tag: "GEN", message: `${genType === "video" ? "Video" : "Image"} generated!`, termStatus: "pass" });
               send({ type: "step", stepId: "ace", status: "pass", detail: `${genType === "video" ? "Video" : "Image"} ready`, timing: 3000 });
+              break;
+            } else if (status === "failed") {
+              throw new Error((event.error as string) || "Generation failed on gateway");
             }
           }
         } catch (err: unknown) {
@@ -367,28 +277,37 @@ export async function POST(request: NextRequest) {
 
           send({ type: "result", status: "denied", reason: msg, id: genId });
           send({ type: "done" });
-          controller.close();
           return;
         } finally {
           clearTimeout(timeout);
         }
 
-        if (!imageUrl) {
+        // If no artifact URL, try fetching it directly
+        if (!artifactUrl && gatewayResult.jobId) {
+          try {
+            const artRes = await fetch(`${GATEWAY_URL}/api/artifacts/${gatewayResult.jobId}`);
+            if (artRes.ok) {
+              // The artifact endpoint might return a redirect or the URL
+              artifactUrl = artRes.url || "";
+            }
+          } catch { /* ignore */ }
+        }
+
+        if (!artifactUrl) {
           send({ type: "terminal", tag: "GEN", message: "Stream ended without result URL", termStatus: "fail" });
           send({ type: "step", stepId: "ace", status: "fail", detail: "No URL" });
           send({ type: "result", status: "denied", reason: "No result URL from gateway" });
           send({ type: "done" });
-          controller.close();
           return;
         }
 
-        // ── H. Record in Redis feed ────────────────────────────────────
+        // ── G. Record in Redis feed ────────────────────────────────────
         send({ type: "step", stepId: "result", status: "active" });
         send({ type: "terminal", tag: "LEDGER", message: "Recording license plate in feed...", termStatus: "info" });
 
         const genId = crypto.randomUUID();
         const entry = {
-          id: genId, prompt: cleanPrompt, imageUrl, status: "granted",
+          id: genId, prompt: cleanPrompt, imageUrl: artifactUrl, status: "granted",
           agentId, ownerAddress: ownerAddress.toLowerCase(),
           humanVerified: "true", tier, reason: "",
           txHash,
@@ -404,10 +323,13 @@ export async function POST(request: NextRequest) {
         send({ type: "terminal", tag: "x402", message: "Payment finalized — agent balance updated", termStatus: "pass" });
         send({ type: "step", stepId: "result", status: "pass", detail: `Tier ${tier}: ${genType === "video" ? "Video" : "Image"}` });
 
-        // ── I. Final result + done ─────────────────────────────────────
+        // ── H. Final result + done ─────────────────────────────────────
         send({
           type: "result", status: "granted",
-          id: genId, imageUrl, prompt: cleanPrompt,
+          id: genId,
+          imageUrl: artifactUrl,
+          videoUrl: genType === "video" ? artifactUrl : undefined,
+          prompt: cleanPrompt,
           agentId, ownerAddress: ownerAddress.toLowerCase(),
           timestamp: Number(entry.timestamp),
         });

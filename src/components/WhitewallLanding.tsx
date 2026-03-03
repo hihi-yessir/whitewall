@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useRef, useContext } from "react";
 import * as THREE from "three";
-import { themes, ThemeCtx, ThemeToggle, Btn, NavLink, CodeViewer } from "./shared/theme";
+import { ThemeCtx, ThemeToggle, Btn, NavLink, CodeViewer } from "./shared/theme";
 import { useIsMobile, useReveal } from "./shared/hooks";
-import { MeshBG } from "./shared/MeshBG";
-import type { ThemeMode } from "./shared/theme";
 
 /* MeshBG extracted to shared/MeshBG.tsx */
 /* eslint-disable */
@@ -412,18 +410,18 @@ const appCode: Record<AppLang, CodeBlock> = {
   go: {
     file: "verify.go",
     lines: [
-      { text: 'import "github.com/whitewall-os/sdk-go"', color: "keyword" },
+      { text: 'import whitewallos "github.com/whitewall-os/sdk-go"', color: "keyword" },
       { text: "" },
-      { text: "client, err := whitewallOS.Connect(", color: "default" },
-      { text: '    whitewallOS.BaseSepolia,', color: "string" },
+      { text: "client, err := whitewallos.Connect(", color: "default" },
+      { text: '    ctx, whitewallos.Config{Chain: whitewallos.BaseSepolia},', color: "string" },
       { text: ")", color: "default" },
       { text: "" },
-      { text: "status, err := client.GetAgentStatus(", color: "default" },
-      { text: "    agentId,", color: "blue" },
+      { text: "status, err := client.GetFullStatus(", color: "default" },
+      { text: "    ctx, agentId,", color: "blue" },
       { text: ")", color: "default" },
       { text: "" },
-      { text: "if status.IsHumanVerified {", color: "keyword" },
-      { text: "    // Agent is accountable", color: "muted" },
+      { text: "if status.EffectiveTier >= 2 {", color: "keyword" },
+      { text: "    // Agent is human-verified", color: "muted" },
       { text: "}", color: "default" },
     ],
   },
@@ -646,9 +644,9 @@ function Footer() {
         3 lines of Solidity. 1 line of TypeScript. Ship verified agents today.
       </p>
       <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
-        <Btn primary small={mobile}>Read the Memorandum</Btn>
-        <Btn small={mobile} href="/demo">Try Demo</Btn>
-        <Btn small={mobile} href="https://github.com">GitHub</Btn>
+        <Btn primary small={mobile} href="/demo">Live Demo</Btn>
+        <Btn small={mobile} href="/tryout">Get Your License</Btn>
+        <Btn small={mobile} href="/feed">Agent Feed</Btn>
       </div>
 
       {/* Powered by */}
@@ -692,8 +690,16 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
           {l.label}
         </a>
       ))}
-      <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-        <Btn small>Memorandum</Btn><Btn small primary href="/demo">Try Demo</Btn>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+        <a href="/demo" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
+          Live Demo
+        </a>
+        <a href="/tryout" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
+          Get Your License
+        </a>
+        <a href="/feed" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
+          Agent Feed
+        </a>
       </div>
     </div>
   );
@@ -702,25 +708,15 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
 // ── Main App ──
 
 export default function WhitewallLanding() {
-  const [mode, setMode] = useState<ThemeMode>("dark");
-  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
-  const t = themes[mode];
+  const { t } = useContext(ThemeCtx);
   const [menuOpen, setMenuOpen] = useState(false);
   const mobile = useIsMobile();
 
   return (
-    <ThemeCtx.Provider value={{ mode, toggle, t }}>
-      <div style={{
-        background: t.bg, minHeight: "100vh", color: t.ink,
-        fontFamily: "'Inter',system-ui,-apple-system,sans-serif",
-        overflow: "auto", transition: "background .4s,color .4s",
-      }}>
-        <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+    <div style={{ overflow: "auto" }}>
+      <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
 
-        {/* Fixed mesh background — visible behind all content */}
-        <MeshBG />
-
-        {/* Edge fade overlay — fixed, always visible */}
+      {/* Edge fade overlay — fixed, always visible */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -739,14 +735,14 @@ export default function WhitewallLanding() {
             background: `${t.bg}B0`, backdropFilter: "blur(12px)",
             transition: "border-color .4s, background .4s",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: t.ink }}>
               <div style={{ display: "flex", gap: 2 }}>
                 {[0, 1, 2].map((i) => (
                   <div key={i} style={{ width: 4, height: 22, borderRadius: 1, background: t.ink, opacity: t.logoDots[i], transition: "background .4s" }} />
                 ))}
               </div>
               <span style={{ fontWeight: 900, fontSize: mobile ? 16 : 20, letterSpacing: 1, textTransform: "uppercase" }}>Whitewall</span>
-            </div>
+            </a>
 
             {mobile ? (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -765,8 +761,8 @@ export default function WhitewallLanding() {
                 <div style={{ width: 1, height: 20, background: t.cardBorder, opacity: 0.5, marginLeft: 4 }} />
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <ThemeToggle />
-                  <Btn small>Memorandum</Btn>
-                  <Btn small primary href="/demo">Try Demo</Btn>
+                  <Btn small href="/demo">Architecture</Btn>
+                  <Btn small primary href="/tryout">Register</Btn>
                 </div>
               </div>
             )}
@@ -804,10 +800,17 @@ export default function WhitewallLanding() {
                 Every autonomous action traces back to an accountable human.
               </p>
               <div className="ha" style={{ animationDelay: "1s", display: "flex", gap: 14, marginTop: mobile ? 28 : 40, flexWrap: "wrap" }}>
-                <Btn primary small={mobile}>Read the Memorandum</Btn>
-                <Btn small={mobile} href="/demo">Try Demo</Btn>
-                <Btn small={mobile} href="https://github.com">GitHub</Btn>
+                <Btn primary small={mobile} href="/demo">Live Demo</Btn>
+                <Btn small={mobile} href="/tryout">Get Your License</Btn>
+                <Btn small={mobile} href="/feed">Agent Feed</Btn>
               </div>
+              <a className="ha" href="https://github.com" target="_blank" rel="noopener noreferrer" style={{
+                animationDelay: "1.15s", display: "inline-block", marginTop: 12,
+                fontSize: 12, color: t.inkMuted, textDecoration: "none", fontWeight: 600,
+                letterSpacing: 0.5,
+              }}>
+                GitHub {"\u2197"}
+              </a>
             </div>
           </section>
 
@@ -840,7 +843,6 @@ export default function WhitewallLanding() {
           input::placeholder{color:${t.inkMuted}}
           html{scroll-behavior:smooth}
         `}</style>
-      </div>
-    </ThemeCtx.Provider>
+    </div>
   );
 }

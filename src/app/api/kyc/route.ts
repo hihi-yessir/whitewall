@@ -1,28 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+
 /**
- * POST /api/kyc — Create a Stripe Identity verification session (sandbox)
+ * POST /api/kyc — Create a Stripe Identity VerificationSession (sandbox)
  * GET  /api/kyc?sessionId=vs_... — Check session status
- *
- * In production, these would call Stripe Identity API.
- * In sandbox/demo mode, we simulate the response.
  */
 
-export async function POST(request: NextRequest) {
-  try {
-    const { agentId } = await request.json();
+export async function POST() {
+  if (!STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: "STRIPE_SECRET_KEY not configured" }, { status: 500 });
+  }
 
-    if (!agentId) {
-      return NextResponse.json({ error: "agentId required" }, { status: 400 });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/identity/verification_sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ type: "document" }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      return NextResponse.json({ error: err.error?.message || "Stripe API error" }, { status: res.status });
     }
 
-    // Sandbox: simulate Stripe Identity session creation
-    const sessionId = `vs_sandbox_${agentId}_${Date.now()}`;
+    const session = await res.json();
 
     return NextResponse.json({
-      sessionId,
-      url: `https://verify.stripe.com/start/${sessionId}`,
-      status: "requires_input",
+      sessionId: session.id,
+      clientSecret: session.client_secret,
+      status: session.status,
     });
   } catch {
     return NextResponse.json({ error: "Failed to create KYC session" }, { status: 500 });
@@ -36,14 +46,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "sessionId required" }, { status: 400 });
   }
 
-  // Sandbox: all sessions auto-verify after creation
-  return NextResponse.json({
-    sessionId,
-    status: "verified",
-    type: "document",
-    lastVerificationReport: {
-      documentType: "id_card",
-      issuingCountry: "US",
-    },
-  });
+  if (!STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: "STRIPE_SECRET_KEY not configured" }, { status: 500 });
+  }
+
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/identity/verification_sessions/${sessionId}`, {
+      headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      return NextResponse.json({ error: err.error?.message || "Stripe API error" }, { status: res.status });
+    }
+
+    const session = await res.json();
+
+    return NextResponse.json({
+      sessionId: session.id,
+      status: session.status,
+    });
+  } catch {
+    return NextResponse.json({ error: "Failed to check KYC status" }, { status: 500 });
+  }
 }

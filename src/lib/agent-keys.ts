@@ -1,12 +1,18 @@
-// In-memory store for demo agent private keys.
+// Agent key store backed by Upstash Redis.
+// Survives hot reloads and server restarts (unlike in-memory Map).
 // In production, this would be a secure enclave or KMS.
 
-const agentKeys = new Map<string, `0x${string}`>();
+import { getRedis } from "./redis";
 
-export function storeAgentKey(agentId: string, privateKey: `0x${string}`) {
-  agentKeys.set(agentId, privateKey);
+const REDIS_PREFIX = "agent-key:";
+
+export async function storeAgentKey(agentId: string, privateKey: `0x${string}`) {
+  const redis = getRedis();
+  await redis.set(`${REDIS_PREFIX}${agentId}`, privateKey);
 }
 
-export function getAgentKey(agentId: string): `0x${string}` | undefined {
-  return agentKeys.get(agentId);
+export async function getAgentKey(agentId: string): Promise<`0x${string}` | undefined> {
+  const redis = getRedis();
+  const key = await redis.get(`${REDIS_PREFIX}${agentId}`);
+  return key ? (key as `0x${string}`) : undefined;
 }

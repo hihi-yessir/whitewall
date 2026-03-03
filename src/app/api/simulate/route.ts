@@ -57,10 +57,10 @@ async function* gate1Pass(mult: number): AsyncGenerator<SimEvent> {
 
 async function* gate2Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: getSummary(42, [WorldID], HUMAN_VERIFIED)", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: count=1, avgScore=2 -- human bond active", termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> true -- human bond active", termStatus: "pass" };
 }
 
 // ── Shared: DON consensus ──
@@ -80,7 +80,7 @@ async function* donConsensus(mult: number): AsyncGenerator<SimEvent> {
 // ── Act 1: Anonymous Bot — fails at Gate 1 (Identity) ──
 
 async function* anonBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield { type: "terminal", tag: "x402", message: "Payment hold: $0.50 USDC", termStatus: "info" };
   yield* commonPrefix(mult);
@@ -102,16 +102,16 @@ async function* anonBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> 
 // ── Act 2: Registered Bot — fails at Gate 2 (Human) ──
 
 async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
 
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: getSummary(42, [WorldID], HUMAN_VERIFIED)", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "fail", detail: "NOT VERIFIED", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: count=0, avgScore=0 -- no human bond", termStatus: "fail" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> false -- no human bond", termStatus: "fail" };
   yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 2 -- agent not human-verified", termStatus: "fail" };
 
   yield { type: "skipAfter" as any, skipAfter: "gate2" } as any;
@@ -124,7 +124,7 @@ async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimE
 // ── Act 3: Verified Agent — passes G1+G2, skips G3+G4 → Image gen (Tier 2) ──
 
 async function* verifiedAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
@@ -198,7 +198,7 @@ async function* gate4Pass(mult: number): AsyncGenerator<SimEvent> {
 // ── Act 4: KYC Agent — passes G1+G2+G3, skips G4 → Video gen (Tier 3) ──
 
 async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
@@ -234,7 +234,7 @@ async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent>
 // ── Act 5: Credit Agent — passes all 4 gates → Premium gen (Tier 4) ──
 
 async function* creditAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
