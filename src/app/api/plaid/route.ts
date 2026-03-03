@@ -7,7 +7,6 @@ const PLAID_BASE = "https://sandbox.plaid.com";
 /**
  * POST /api/plaid
  *   { action: "create-link" } → Plaid Link token
- *   { action: "exchange", publicToken } → exchange for access token
  */
 
 export async function POST(request: NextRequest) {
@@ -44,35 +43,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         linkToken: data.link_token,
         expiration: data.expiration,
-      });
-    }
-
-    if (action === "exchange") {
-      const { publicToken } = body;
-      if (!publicToken) {
-        return NextResponse.json({ error: "publicToken required" }, { status: 400 });
-      }
-
-      const res = await fetch(`${PLAID_BASE}/item/public_token/exchange`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: PLAID_CLIENT_ID,
-          secret: PLAID_SECRET,
-          public_token: publicToken,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        return NextResponse.json({ error: err.error_message || "Plaid API error" }, { status: res.status });
-      }
-
-      const data = await res.json();
-
-      return NextResponse.json({
-        success: true,
-        itemId: data.item_id,
       });
     }
 

@@ -46,6 +46,15 @@ export function FeedNav() {
         }}>
           Demo
         </a>
+        <a href="/tryout" style={{
+          fontSize: 12, fontWeight: 700, color: t.ink,
+          textDecoration: "none", letterSpacing: 1, textTransform: "uppercase",
+          padding: "4px 10px", borderRadius: 4,
+          background: `${t.blue}15`, border: `1px solid ${t.blue}30`,
+          transition: "all .2s",
+        }}>
+          Register {"\u2192"}
+        </a>
         <ThemeToggle />
       </div>
     </nav>

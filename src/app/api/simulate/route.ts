@@ -80,7 +80,7 @@ async function* donConsensus(mult: number): AsyncGenerator<SimEvent> {
 // ── Act 1: Anonymous Bot — fails at Gate 1 (Identity) ──
 
 async function* anonBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield { type: "terminal", tag: "x402", message: "Payment hold: $0.50 USDC", termStatus: "info" };
   yield* commonPrefix(mult);
@@ -102,7 +102,7 @@ async function* anonBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> 
 // ── Act 2: Registered Bot — fails at Gate 2 (Human) ──
 
 async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
@@ -124,7 +124,7 @@ async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimE
 // ── Act 3: Verified Agent — passes G1+G2, skips G3+G4 → Image gen (Tier 2) ──
 
 async function* verifiedAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
@@ -198,7 +198,7 @@ async function* gate4Pass(mult: number): AsyncGenerator<SimEvent> {
 // ── Act 4: KYC Agent — passes G1+G2+G3, skips G4 → Video gen (Tier 3) ──
 
 async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);
@@ -234,7 +234,7 @@ async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent>
 // ── Act 5: Credit Agent — passes all 4 gates → Premium gen (Tier 4) ──
 
 async function* creditAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent> {
-  const mult = presentMode ? 1.8 : 1;
+  const mult = presentMode ? 2.5 : 1.8;
 
   yield* commonPrefix(mult);
   yield* gate1Pass(mult);

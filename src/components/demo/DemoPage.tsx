@@ -1,24 +1,20 @@
 "use client";
 
-import { useState, useReducer, useCallback, useEffect } from "react";
-import dynamic from "next/dynamic";
+import { useState, useReducer, useCallback, useEffect, useMemo } from "react";
 import { themes, ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import { MeshBG } from "../shared/MeshBG";
 import { DemoNav } from "./DemoNav";
-import { ControlPanel } from "./ControlPanel";
-import { PipelineViz } from "./PipelineViz";
+import { NodeDetailPane } from "./NodeDetailPane";
+import { ArchitectureViz } from "./ArchitectureViz";
 import { LiveTerminal } from "./LiveTerminal";
-import { ResultCard } from "./ResultCard";
 import { demoReducer, initialDemoState } from "./types";
 import type { ThemeMode } from "../shared/theme";
 import type { ScenarioId, ActNumber } from "./types";
 
-// Lazy-load TryItFlow (heavy: viem + idkit) — only compiled when Act 6 is active
-const TryItFlow = dynamic(() => import("./TryItFlow").then(m => ({ default: m.TryItFlow })), {
-  ssr: false,
-  loading: () => <div style={{ padding: 24, opacity: 0.5 }}>Loading wallet tools...</div>,
-});
+const SCENARIO_ORDER: ScenarioId[] = [
+  "anon-bot", "registered-bot", "verified-agent", "kyc-agent", "credit-agent",
+];
 
 export default function DemoPage() {
   const [mode, setMode] = useState<ThemeMode>("dark");
@@ -27,6 +23,12 @@ export default function DemoPage() {
   const mobile = useIsMobile();
 
   const [state, dispatch] = useReducer(demoReducer, initialDemoState);
+
+  // Derive active step from pipeline
+  const activeStepId = useMemo(
+    () => state.pipeline.find((s) => s.status === "active")?.id ?? null,
+    [state.pipeline],
+  );
 
   // Check for presentation mode
   const [presentMode, setPresentMode] = useState(false);
@@ -37,15 +39,13 @@ export default function DemoPage() {
 
   // Run simulation via SSE
   const runScenario = useCallback(async (scenario: ScenarioId) => {
-    // Reset pipeline
     dispatch({ type: "RESET_PIPELINE" });
     dispatch({ type: "SET_SCENARIO", scenario });
     dispatch({ type: "SET_RUNNING", isRunning: true });
 
-    // Set act based on scenario
     const actMap: Record<string, ActNumber> = {
       "anon-bot": 1, "registered-bot": 2, "verified-agent": 3,
-      "kyc-agent": 4, "credit-agent": 5, "try-it": 6,
+      "kyc-agent": 4, "credit-agent": 5,
     };
     dispatch({ type: "SET_ACT", act: actMap[scenario] || 1 });
 
@@ -98,50 +98,27 @@ export default function DemoPage() {
     dispatch({ type: "SET_RUNNING", isRunning: false });
   }, [presentMode]);
 
-  const handleActChange = useCallback((act: ActNumber) => {
-    dispatch({ type: "SET_ACT", act });
-    if (presentMode) {
-      // In presentation mode, auto-run scenario when switching acts
-      const scenarioMap: Record<number, ScenarioId> = {
-        1: "anon-bot", 2: "registered-bot", 3: "verified-agent",
-        4: "kyc-agent", 5: "credit-agent",
-      };
-      if (act <= 5) {
-        runScenario(scenarioMap[act]);
-      }
-    }
-  }, [presentMode, runScenario]);
-
   const handleScenario = useCallback((scenario: ScenarioId) => {
-    runScenario(scenario);
-  }, [runScenario]);
-
-  const handleTryIt = useCallback(() => {
-    dispatch({ type: "RESET_PIPELINE" });
-    dispatch({ type: "SET_ACT", act: 6 });
-    dispatch({ type: "SET_SCENARIO", scenario: "try-it" });
-  }, []);
+    if (!state.isRunning) runScenario(scenario);
+  }, [runScenario, state.isRunning]);
 
   // Keyboard shortcuts for presentation mode
   useEffect(() => {
     if (!presentMode) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight" && state.act < 6) {
-        handleActChange((state.act + 1) as ActNumber);
-      } else if (e.key === "ArrowLeft" && state.act > 1) {
-        handleActChange((state.act - 1) as ActNumber);
+      const idx = SCENARIO_ORDER.indexOf(state.scenario);
+      if (e.key === "ArrowRight" && idx < SCENARIO_ORDER.length - 1) {
+        handleScenario(SCENARIO_ORDER[idx + 1]);
+      } else if (e.key === "ArrowLeft" && idx > 0) {
+        handleScenario(SCENARIO_ORDER[idx - 1]);
       } else if (e.key === " " && !state.isRunning) {
         e.preventDefault();
-        const scenarioMap: Record<number, ScenarioId> = {
-          1: "anon-bot", 2: "registered-bot", 3: "verified-agent",
-          4: "kyc-agent", 5: "credit-agent",
-        };
-        if (state.act <= 5) runScenario(scenarioMap[state.act]);
+        if (state.scenario !== "idle") runScenario(state.scenario);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [presentMode, state.act, state.isRunning, handleActChange, runScenario]);
+  }, [presentMode, state.scenario, state.isRunning, handleScenario, runScenario]);
 
   return (
     <ThemeCtx.Provider value={{ mode, toggle, t }}>
@@ -151,10 +128,9 @@ export default function DemoPage() {
         display: "flex", flexDirection: "column",
         transition: "background .4s, color .4s",
       }}>
-        {/* Mesh background — brand requirement: always present */}
         <MeshBG />
 
-        {/* Edge fade overlay — matches landing page */}
+        {/* Edge fade overlay */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -163,67 +139,54 @@ export default function DemoPage() {
           transition: "background .4s",
         }} />
 
-        {/* All content above mesh */}
+        {/* Content */}
         <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-        <DemoNav currentAct={state.act} onActChange={handleActChange} />
+          <DemoNav
+            currentScenario={state.scenario}
+            isRunning={state.isRunning}
+            onScenario={handleScenario}
+          />
 
-        <div key={state.act} style={{
-          flex: 1, display: "flex",
-          flexDirection: mobile ? "column" : "row",
-          overflow: "hidden",
-          animation: "actFadeIn .25s ease-out",
-        }}>
-          {/* Left: Control Panel or Try It */}
-          {state.act === 6 ? (
-            <div style={{
-              width: mobile ? "100%" : 280,
-              borderRight: mobile ? "none" : `1px solid ${t.cardBorder}40`,
-              borderBottom: mobile ? `1px solid ${t.cardBorder}40` : "none",
-              overflowY: "auto",
-              maxHeight: mobile ? 400 : "none",
-            }}>
-              <TryItFlow dispatch={dispatch} wallet={state.wallet} agent={state.agent} prompt={state.prompt} isGenerating={state.isGenerating} generation={state.generation} />
-            </div>
-          ) : (
-            <ControlPanel
-              currentAct={state.act}
-              isRunning={state.isRunning}
-              onScenario={handleScenario}
-              onTryIt={handleTryIt}
-            />
-          )}
-
-          {/* Center: Pipeline Viz + Result + Terminal — frosted panel */}
           <div style={{
-            flex: 1, display: "flex", flexDirection: "column",
-            minHeight: 0,
-            margin: mobile ? 8 : 16,
-            marginLeft: mobile ? 8 : 0,
-            background: `${t.card}B0`,
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            border: `1px solid ${t.cardBorder}40`,
-            borderRadius: 14,
+            flex: 1, display: "flex",
+            flexDirection: mobile ? "column" : "row",
             overflow: "hidden",
-            transition: "background .4s, border-color .4s",
+            animation: "actFadeIn .25s ease-out",
           }}>
-            <PipelineViz steps={state.pipeline} />
+            {/* Left: Node Detail Pane */}
+            <NodeDetailPane
+              scenario={state.scenario}
+              activeStepId={activeStepId}
+              steps={state.pipeline}
+            />
 
-            {/* Result card */}
-            {state.result && (
-              <div style={{
-                padding: mobile ? "0 16px 16px" : "0 32px 24px",
-                maxWidth: 440, alignSelf: "center", width: "100%",
-              }}>
-                <ResultCard result={state.result} generation={state.generation} />
-              </div>
-            )}
+            {/* Center: Architecture Viz + Terminal — frosted panel */}
+            <div style={{
+              flex: 1, display: "flex", flexDirection: "column",
+              minHeight: 0,
+              margin: mobile ? 8 : 16,
+              marginLeft: mobile ? 8 : 0,
+              background: `${t.card}B0`,
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              border: `1px solid ${t.cardBorder}40`,
+              borderRadius: 14,
+              overflow: "hidden",
+              transition: "background .4s, border-color .4s",
+            }}>
+              <ArchitectureViz
+                steps={state.pipeline}
+                scenario={state.scenario}
+                aceExpanded={state.aceExpanded}
+                onToggleAce={() => dispatch({ type: "TOGGLE_ACE_PANEL" })}
+                result={state.result}
+                generation={state.generation}
+              />
 
-            {/* Terminal inside the panel */}
-            <LiveTerminal entries={state.terminal} />
+              <LiveTerminal entries={state.terminal} />
+            </div>
           </div>
         </div>
-        </div>{/* end content wrapper */}
 
         {/* Global styles */}
         <style>{`
@@ -238,6 +201,10 @@ export default function DemoPage() {
           @keyframes termFadeIn {
             from { opacity: 0; transform: translateY(4px); }
             to { opacity: 1; transform: none; }
+          }
+          @keyframes edgeFlow {
+            from { stroke-dashoffset: 10; }
+            to { stroke-dashoffset: 0; }
           }
           @keyframes resultAppear {
             from { opacity: 0; transform: translateY(12px); }
