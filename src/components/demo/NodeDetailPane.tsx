@@ -155,6 +155,7 @@ export function NodeDetailPane({ scenario, activeStepId, steps }: NodeDetailPane
   return (
     <div style={{
       width: 260,
+      minHeight: 0,
       borderRight: `1px solid ${t.cardBorder}40`,
       display: "flex",
       flexDirection: "column",

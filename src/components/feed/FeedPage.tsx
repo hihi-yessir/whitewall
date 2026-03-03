@@ -1,20 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useContext } from "react";
-import { themes, ThemeCtx } from "../shared/theme";
+import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
-import { MeshBG } from "../shared/MeshBG";
 import { FeedNav } from "./FeedNav";
 import { FeedToolbar } from "./FeedToolbar";
 import { FeedListItem, FeedListItemSkeleton } from "./FeedListItem";
 import { FeedDetail } from "./FeedDetail";
 import type { Generation, FeedStats, FeedResponse } from "./types";
-import type { ThemeMode } from "../shared/theme";
 
 export default function FeedPage() {
-  const [mode, setMode] = useState<ThemeMode>("dark");
-  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
-  const t = themes[mode];
+  const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
 
   const [entries, setEntries] = useState<Generation[]>([]);
@@ -154,16 +150,8 @@ export default function FeedPage() {
   const detailOpen = selectedEntry !== null;
 
   return (
-    <ThemeCtx.Provider value={{ mode, toggle, t }}>
-      <div style={{
-        background: t.bg, minHeight: "100vh", color: t.ink,
-        fontFamily: "'Inter',system-ui,-apple-system,sans-serif",
-        display: "flex", flexDirection: "column",
-        transition: "background .4s, color .4s",
-      }}>
-        <MeshBG />
-
-        {/* Edge fade — matches demo page */}
+    <>
+      {/* Edge fade — matches demo page */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -297,7 +285,6 @@ export default function FeedPage() {
           ::-webkit-scrollbar-track { background: ${t.bg}; }
           ::-webkit-scrollbar-thumb { background: ${t.blue}; border-radius: 3px; }
         `}</style>
-      </div>
-    </ThemeCtx.Provider>
+    </>
   );
 }

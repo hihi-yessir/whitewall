@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { AppShell } from "@/components/shared/AppShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,17 +19,36 @@ export const metadata: Metadata = {
     "License plates for the agentic economy. On-chain identity and verification for AI agents.",
 };
 
+// Inline script that runs before paint to set theme on <html>
+const themeScript = `
+(function(){
+  try {
+    var t = localStorage.getItem('ww-theme');
+    if (t === 'light' || t === 'dark') {
+      document.documentElement.setAttribute('data-theme', t);
+    } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  } catch(e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})()
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-theme="dark">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

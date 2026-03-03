@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useRef, useContext } from "react";
 import * as THREE from "three";
-import { themes, ThemeCtx, ThemeToggle, Btn, NavLink, CodeViewer } from "./shared/theme";
+import { ThemeCtx, ThemeToggle, Btn, NavLink, CodeViewer } from "./shared/theme";
 import { useIsMobile, useReveal } from "./shared/hooks";
-import { MeshBG } from "./shared/MeshBG";
-import type { ThemeMode } from "./shared/theme";
 
 /* MeshBG extracted to shared/MeshBG.tsx */
 /* eslint-disable */
@@ -710,25 +708,15 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
 // ── Main App ──
 
 export default function WhitewallLanding() {
-  const [mode, setMode] = useState<ThemeMode>("dark");
-  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
-  const t = themes[mode];
+  const { t } = useContext(ThemeCtx);
   const [menuOpen, setMenuOpen] = useState(false);
   const mobile = useIsMobile();
 
   return (
-    <ThemeCtx.Provider value={{ mode, toggle, t }}>
-      <div style={{
-        background: t.bg, minHeight: "100vh", color: t.ink,
-        fontFamily: "'Inter',system-ui,-apple-system,sans-serif",
-        overflow: "auto", transition: "background .4s,color .4s",
-      }}>
-        <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+    <div style={{ overflow: "auto" }}>
+      <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
 
-        {/* Fixed mesh background — visible behind all content */}
-        <MeshBG />
-
-        {/* Edge fade overlay — fixed, always visible */}
+      {/* Edge fade overlay — fixed, always visible */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -747,14 +735,14 @@ export default function WhitewallLanding() {
             background: `${t.bg}B0`, backdropFilter: "blur(12px)",
             transition: "border-color .4s, background .4s",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: t.ink }}>
               <div style={{ display: "flex", gap: 2 }}>
                 {[0, 1, 2].map((i) => (
                   <div key={i} style={{ width: 4, height: 22, borderRadius: 1, background: t.ink, opacity: t.logoDots[i], transition: "background .4s" }} />
                 ))}
               </div>
               <span style={{ fontWeight: 900, fontSize: mobile ? 16 : 20, letterSpacing: 1, textTransform: "uppercase" }}>Whitewall</span>
-            </div>
+            </a>
 
             {mobile ? (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -855,7 +843,6 @@ export default function WhitewallLanding() {
           input::placeholder{color:${t.inkMuted}}
           html{scroll-behavior:smooth}
         `}</style>
-      </div>
-    </ThemeCtx.Provider>
+    </div>
   );
 }

@@ -1,15 +1,13 @@
 "use client";
 
-import { useState, useReducer, useCallback, useEffect, useMemo } from "react";
-import { themes, ThemeCtx } from "../shared/theme";
+import { useState, useReducer, useCallback, useEffect, useMemo, useContext } from "react";
+import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
-import { MeshBG } from "../shared/MeshBG";
 import { DemoNav } from "./DemoNav";
 import { NodeDetailPane } from "./NodeDetailPane";
 import { ArchitectureViz } from "./ArchitectureViz";
 import { LiveTerminal } from "./LiveTerminal";
 import { demoReducer, initialDemoState } from "./types";
-import type { ThemeMode } from "../shared/theme";
 import type { ScenarioId, ActNumber } from "./types";
 
 const SCENARIO_ORDER: ScenarioId[] = [
@@ -17,9 +15,7 @@ const SCENARIO_ORDER: ScenarioId[] = [
 ];
 
 export default function DemoPage() {
-  const [mode, setMode] = useState<ThemeMode>("dark");
-  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
-  const t = themes[mode];
+  const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
 
   const [state, dispatch] = useReducer(demoReducer, initialDemoState);
@@ -121,16 +117,8 @@ export default function DemoPage() {
   }, [presentMode, state.scenario, state.isRunning, handleScenario, runScenario]);
 
   return (
-    <ThemeCtx.Provider value={{ mode, toggle, t }}>
-      <div style={{
-        background: t.bg, minHeight: "100vh", color: t.ink,
-        fontFamily: "'Inter',system-ui,-apple-system,sans-serif",
-        display: "flex", flexDirection: "column",
-        transition: "background .4s, color .4s",
-      }}>
-        <MeshBG />
-
-        {/* Edge fade overlay */}
+    <>
+      {/* Edge fade overlay */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -140,7 +128,7 @@ export default function DemoPage() {
         }} />
 
         {/* Content */}
-        <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+        <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
           <DemoNav
             currentScenario={state.scenario}
             isRunning={state.isRunning}
@@ -215,7 +203,6 @@ export default function DemoPage() {
           ::-webkit-scrollbar-track { background: ${t.bg}; }
           ::-webkit-scrollbar-thumb { background: ${t.blue}; border-radius: 3px; }
         `}</style>
-      </div>
-    </ThemeCtx.Provider>
+    </>
   );
 }

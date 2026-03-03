@@ -15,6 +15,19 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Pre-paint theme backgrounds — prevents flash */
+html[data-theme="dark"],
+html[data-theme="dark"] body {
+  background: #0A0A0A;
+  color: #EEEEEE;
+}
+
+html[data-theme="light"],
+html[data-theme="light"] body {
+  background: #FAFAFA;
+  color: #111111;
+}
+
 body {
   overflow-x: hidden;
 }
@@ -23,8 +36,12 @@ body {
   width: 6px;
 }
 
-::-webkit-scrollbar-track {
+html[data-theme="dark"] ::-webkit-scrollbar-track {
   background: #0A0A0A;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #FAFAFA;
 }
 
 ::-webkit-scrollbar-thumb {

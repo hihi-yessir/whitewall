@@ -1,34 +1,22 @@
 "use client";
 
-import { useState, useReducer } from "react";
-import { themes, ThemeCtx, ThemeToggle } from "../shared/theme";
+import { useReducer, useContext } from "react";
+import { ThemeCtx, ThemeToggle } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
-import { MeshBG } from "../shared/MeshBG";
 import { TryoutFlow } from "./TryoutFlow";
 import { LicensePlate } from "./LicensePlate";
 import { BottomTerminal } from "./CollapsibleTerminal";
 import { tryoutReducer, initialTryoutState } from "./types";
-import type { ThemeMode } from "../shared/theme";
 
 export default function TryoutPage() {
-  const [mode, setMode] = useState<ThemeMode>("dark");
-  const toggle = () => setMode((m) => (m === "dark" ? "light" : "dark"));
-  const t = themes[mode];
+  const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
 
   const [state, dispatch] = useReducer(tryoutReducer, initialTryoutState);
 
   return (
-    <ThemeCtx.Provider value={{ mode, toggle, t }}>
-      <div style={{
-        background: t.bg, minHeight: "100vh", color: t.ink,
-        fontFamily: "'Inter',system-ui,-apple-system,sans-serif",
-        display: "flex", flexDirection: "column",
-        transition: "background .4s, color .4s",
-      }}>
-        <MeshBG />
-
-        {/* Edge fade overlay */}
+    <>
+      {/* Edge fade overlay */}
         <div style={{
           position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none",
           background: mobile
@@ -145,7 +133,6 @@ export default function TryoutPage() {
           ::-webkit-scrollbar-track { background: ${t.bg}; }
           ::-webkit-scrollbar-thumb { background: ${t.blue}; border-radius: 3px; }
         `}</style>
-      </div>
-    </ThemeCtx.Provider>
+    </>
   );
 }
