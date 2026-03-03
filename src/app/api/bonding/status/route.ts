@@ -9,9 +9,8 @@ import {
   stripeKYCValidatorAbi,
   plaidCreditValidatorAbi,
 } from "@whitewall-os/sdk";
-import { getRedis } from "@/lib/redis";
 
-const client = createPublicClient({ chain: baseSepolia, transport: http() });
+const client = createPublicClient({ chain: baseSepolia, transport: http(process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org") });
 const addr = addresses.baseSepolia;
 
 // Cache policy config (addresses don't change)
@@ -31,7 +30,7 @@ async function getPolicyConfig() {
 /**
  * GET /api/bonding/status?agentId=123
  *
- * Reads on-chain validator state + Redis validation request state.
+ * Reads on-chain validator state.
  */
 export async function GET(request: NextRequest) {
   const agentId = request.nextUrl.searchParams.get("agentId");
@@ -92,13 +91,6 @@ export async function GET(request: NextRequest) {
         }),
       ]);
 
-    // Read Redis validation request state
-    const redis = getRedis();
-    const [kycRequest, creditRequest] = await Promise.all([
-      redis.hgetall(`bonding:kyc:${agentId}`),
-      redis.hgetall(`bonding:credit:${agentId}`),
-    ]);
-
     // Compute effective tier
     const registered = owner.status === "fulfilled" && owner.value !== "0x0000000000000000000000000000000000000000";
     const humanOk = isHumanVerified.status === "fulfilled" && isHumanVerified.value === true;
@@ -110,7 +102,7 @@ export async function GET(request: NextRequest) {
     if (registered) effectiveTier = 1;
     if (registered && humanOk) effectiveTier = 2;
     if (registered && humanOk && kycOk) effectiveTier = 3;
-    if (registered && humanOk && kycOk && creditOk && score >= 60) effectiveTier = 4;
+    if (registered && humanOk && kycOk && creditOk && score >= 50) effectiveTier = 4;
 
     return NextResponse.json({
       agentId,
@@ -133,10 +125,6 @@ export async function GET(request: NextRequest) {
           hasScore: (creditData.value as [number, string, bigint, boolean])[3],
         } : null,
         effectiveTier,
-      },
-      validationRequests: {
-        kyc: kycRequest || null,
-        credit: creditRequest ? { ...creditRequest, accessToken: undefined } : null,
       },
     });
   } catch (e) {

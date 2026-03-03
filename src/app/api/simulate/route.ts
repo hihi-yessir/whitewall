@@ -57,10 +57,10 @@ async function* gate1Pass(mult: number): AsyncGenerator<SimEvent> {
 
 async function* gate2Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: getSummary(42, [WorldID], HUMAN_VERIFIED)", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: count=1, avgScore=2 -- human bond active", termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> true -- human bond active", termStatus: "pass" };
 }
 
 // ── Shared: DON consensus ──
@@ -108,10 +108,10 @@ async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimE
   yield* gate1Pass(mult);
 
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: getSummary(42, [WorldID], HUMAN_VERIFIED)", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "fail", detail: "NOT VERIFIED", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: count=0, avgScore=0 -- no human bond", termStatus: "fail" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> false -- no human bond", termStatus: "fail" };
   yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 2 -- agent not human-verified", termStatus: "fail" };
 
   yield { type: "skipAfter" as any, skipAfter: "gate2" } as any;

@@ -10,10 +10,9 @@ import {
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { getRedis } from "@/lib/redis";
-
-const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
-const IDENTITY_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e" as const;
-const WORLD_ID_VALIDATOR = "0x1258F013d1BA690Dc73EA89Fd48F86E86AD0f124" as const;
+import { addresses, tieredPolicyAbi, identityRegistryAbi, worldIdValidatorAbi } from "@whitewall-os/sdk";
+import { USDC_ADDRESS } from "@/lib/contracts";
+const addr = addresses.baseSepolia;
 const FAUCET_AMOUNT = 1_000_000n; // 1 USDC (6 decimals)
 const FAUCET_COOLDOWN = 86_400; // 1 day in seconds
 
@@ -22,10 +21,24 @@ const erc20Abi = parseAbi([
   "function balanceOf(address account) view returns (uint256)",
 ]);
 
-const verifyAbi = parseAbi([
-  "function ownerOf(uint256 tokenId) view returns (address)",
-  "function isHumanVerified(uint256 agentId) view returns (bool)",
-]);
+// Cache policy config (addresses don't change)
+let policyConfig: { identityRegistry: string; worldIdValidator: string } | null = null;
+
+function getPublicClient(rpcUrl?: string) {
+  return createPublicClient({ chain: baseSepolia, transport: http(rpcUrl || "https://sepolia.base.org") });
+}
+
+async function getPolicyConfig(rpcUrl?: string) {
+  if (policyConfig) return policyConfig;
+  const client = getPublicClient(rpcUrl);
+  const policyAddr = addr.tieredPolicy as `0x${string}`;
+  const [identityRegistry, worldIdValidator] = await Promise.all([
+    client.readContract({ address: policyAddr, abi: tieredPolicyAbi, functionName: "getIdentityRegistry" }),
+    client.readContract({ address: policyAddr, abi: tieredPolicyAbi, functionName: "getWorldIdValidator" }),
+  ]);
+  policyConfig = { identityRegistry: identityRegistry as string, worldIdValidator: worldIdValidator as string };
+  return policyConfig;
+}
 
 function faucetKey(address: string) {
   return `faucet:${address.toLowerCase()}`;
@@ -48,19 +61,20 @@ export async function POST(req: NextRequest) {
     }
 
     const rpcUrl = process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org";
-    const publicClient = createPublicClient({ chain: baseSepolia, transport: http(rpcUrl) });
+    const publicClient = getPublicClient(rpcUrl);
+    const config = await getPolicyConfig(rpcUrl);
 
     // On-chain verification: must be human-verified + caller must be owner
     const [owner, humanVerified] = await Promise.all([
       publicClient.readContract({
-        address: IDENTITY_REGISTRY,
-        abi: verifyAbi,
+        address: config.identityRegistry as `0x${string}`,
+        abi: identityRegistryAbi,
         functionName: "ownerOf",
         args: [BigInt(agentId)],
       }),
       publicClient.readContract({
-        address: WORLD_ID_VALIDATOR,
-        abi: verifyAbi,
+        address: config.worldIdValidator as `0x${string}`,
+        abi: worldIdValidatorAbi,
         functionName: "isHumanVerified",
         args: [BigInt(agentId)],
       }),

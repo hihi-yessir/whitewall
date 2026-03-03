@@ -4,24 +4,32 @@ import { baseSepolia } from "viem/chains";
 import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS } from "@/lib/redis";
 import { generateVideo } from "@/lib/genapi";
 import { uploadBuffer } from "@/lib/blob";
+import { addresses, tieredPolicyAbi, worldIdValidatorAbi } from "@whitewall-os/sdk";
 
 const RATE_LIMIT = 2;       // stricter for video
 const RATE_WINDOW = 120;    // 2 minutes
 
-const WORLD_ID_VALIDATOR = "0x1258F013d1BA690Dc73EA89Fd48F86E86AD0f124" as const;
-const isHumanVerifiedAbi = [{
-  type: "function",
-  name: "isHumanVerified",
-  inputs: [{ name: "agentId", type: "uint256" }],
-  outputs: [{ name: "", type: "bool" }],
-  stateMutability: "view",
-}] as const;
+const addr = addresses.baseSepolia;
+
+// Cache policy config (addresses don't change)
+let worldIdValidatorAddr: string | null = null;
 
 function getPublicClient() {
   return createPublicClient({
     chain: baseSepolia,
     transport: http(process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org"),
   });
+}
+
+async function getWorldIdValidator(): Promise<string> {
+  if (worldIdValidatorAddr) return worldIdValidatorAddr;
+  const client = getPublicClient();
+  worldIdValidatorAddr = await client.readContract({
+    address: addr.tieredPolicy as `0x${string}`,
+    abi: tieredPolicyAbi,
+    functionName: "getWorldIdValidator",
+  }) as string;
+  return worldIdValidatorAddr;
 }
 
 function sse(data: Record<string, unknown>): string {
@@ -77,9 +85,10 @@ export async function POST(request: NextRequest) {
         let humanVerified = false;
         try {
           const client = getPublicClient();
+          const validatorAddr = await getWorldIdValidator();
           humanVerified = await client.readContract({
-            address: WORLD_ID_VALIDATOR,
-            abi: isHumanVerifiedAbi,
+            address: validatorAddr as `0x${string}`,
+            abi: worldIdValidatorAbi,
             functionName: "isHumanVerified",
             args: [BigInt(agentId)],
           }) as boolean;
@@ -95,7 +104,7 @@ export async function POST(request: NextRequest) {
           const deniedEntry = {
             id: genId, prompt: cleanPrompt, imageUrl: "", status: "denied",
             agentId, ownerAddress: ownerAddress.toLowerCase(),
-            humanVerified: "false", tier: "3", reason: "Agent is not human-verified",
+            humanVerified: "false", tier: "0", reason: "Agent is not human-verified",
             timestamp: String(Date.now()),
           };
           await redis.hset(genKey(genId), deniedEntry);
@@ -138,7 +147,7 @@ export async function POST(request: NextRequest) {
           const deniedEntry = {
             id: genId, prompt: cleanPrompt, imageUrl: "", status: "denied",
             agentId, ownerAddress: ownerAddress.toLowerCase(),
-            humanVerified: String(humanVerified), tier: "3", reason: msg,
+            humanVerified: String(humanVerified), tier: "2", reason: msg,
             timestamp: String(Date.now()),
           };
           await redis.hset(genKey(genId), deniedEntry);
@@ -157,7 +166,7 @@ export async function POST(request: NextRequest) {
         const entry = {
           id: genId, prompt: cleanPrompt, imageUrl: videoUrl || "", status: "granted",
           agentId, ownerAddress: ownerAddress.toLowerCase(),
-          humanVerified: String(humanVerified), tier: "3", reason: "",
+          humanVerified: String(humanVerified), tier: "2", reason: "",
           timestamp: String(Date.now()),
         };
         await redis.hset(genKey(genId), entry);
