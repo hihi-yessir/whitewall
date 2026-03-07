@@ -1,18 +1,52 @@
 "use client";
 
-import { useReducer, useContext } from "react";
+import { useReducer, useContext, useEffect, useCallback } from "react";
 import { ThemeCtx, ThemeToggle } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import { TryoutFlow } from "./TryoutFlow";
 import { LicensePlate } from "./LicensePlate";
 import { BottomTerminal } from "./CollapsibleTerminal";
-import { tryoutReducer, initialTryoutState } from "./types";
+import { tryoutReducer, initialTryoutState, loadPersistedState } from "./types";
+import type { TryoutState, TryoutAction } from "./types";
+
+const STORAGE_KEY = "ww-tryout-progress";
+
+function persistState(state: TryoutState, step: string) {
+  try {
+    const data = {
+      wallet: state.wallet,
+      agent: {
+        ...state.agent,
+        id: state.agent.id ? state.agent.id.toString() : undefined,
+      },
+      tierData: state.tierData,
+      phase: state.phase,
+      step,
+      kycStatus: state.kycStatus,
+      creditStatus: state.creditStatus,
+      generation: state.generation,
+      videoGeneration: state.videoGeneration,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
 
 export default function TryoutPage() {
   const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
 
-  const [state, dispatch] = useReducer(tryoutReducer, initialTryoutState);
+  const [state, rawDispatch] = useReducer(tryoutReducer, undefined, loadPersistedState);
+
+  // Wrap dispatch to persist after each action
+  const dispatch: React.Dispatch<TryoutAction> = useCallback((action: TryoutAction) => {
+    rawDispatch(action);
+  }, []);
+
+  // Persist on state changes (step is stored in TryoutFlow, so we persist from here via a custom event)
+  useEffect(() => {
+    const step = (window as any).__wwTryoutStep || "connect";
+    persistState(state, step);
+  }, [state]);
 
   return (
     <>
@@ -123,6 +157,9 @@ export default function TryoutPage() {
           @keyframes demoPulse {
             0%, 100% { opacity: 0.5; transform: scale(1); }
             50% { opacity: 1; transform: scale(1.1); }
+          }
+          @keyframes wwSpin {
+            to { transform: rotate(360deg); }
           }
           @keyframes termFadeIn {
             from { opacity: 0; transform: translateY(4px); }

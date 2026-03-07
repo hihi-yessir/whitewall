@@ -20,3 +20,4 @@ export const STATS_GRANTED = "feed:stats:granted";
 export const STATS_DENIED = "feed:stats:denied";
 export const STATS_AGENTS = "feed:stats:agents";  // set of unique agentIds
 export const ownerFeedKey = (address: string) => `feed:owner:${address.toLowerCase()}`;
+export const STATS_TEE = "feed:stats:tee";

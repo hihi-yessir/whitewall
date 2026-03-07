@@ -47,20 +47,20 @@ async function* commonPrefix(mult: number): AsyncGenerator<SimEvent> {
 
 async function* gate1Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate1", status: "active" };
-  yield { type: "terminal", tag: "GATE 1", message: "Identity: ownerOf(42) -> ...", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 1", message: "Identity: IdentityRegistry(0x8004A818).ownerOf(42)", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate1", status: "pass", detail: "ownerOf(42) -> Alice", timing: 600 };
-  yield { type: "terminal", tag: "GATE 1", message: "Identity: ownerOf(42) -> 0xAl1c3...cafe (registered)", termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 1", message: "ownerOf(42) -> 0x5472...2603 (registered, ERC-8004)", termStatus: "pass" };
 }
 
 // ── Shared: Gate 2 pass ──
 
 async function* gate2Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: WorldIDValidator(0x1258f0).isHumanVerified(42)", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> true -- human bond active", termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 2", message: "isHumanVerified(42) -> true (World ID proof-of-personhood bond)", termStatus: "pass" };
 }
 
 // ── Shared: DON consensus ──
@@ -86,11 +86,11 @@ async function* anonBotScenario(presentMode: boolean): AsyncGenerator<SimEvent> 
   yield* commonPrefix(mult);
 
   yield { type: "step", stepId: "gate1", status: "active" };
-  yield { type: "terminal", tag: "GATE 1", message: "Identity check: ownerOf(agentId) -> ...", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 1", message: "Identity: IdentityRegistry(0x8004A818).ownerOf(agentId)", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate1", status: "fail", detail: "NOT REGISTERED", timing: 600 };
-  yield { type: "terminal", tag: "GATE 1", message: "Identity: ownerOf(agentId) -> 0x0000...0000 (unregistered)", termStatus: "fail" };
-  yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 1 -- agent not registered", termStatus: "fail" };
+  yield { type: "terminal", tag: "GATE 1", message: "ownerOf(agentId) -> 0x0000...0000 (unregistered)", termStatus: "fail" };
+  yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 1 -- no ERC-8004 identity", termStatus: "fail" };
 
   yield { type: "skipAfter" as any, skipAfter: "gate1" } as any;
   await delay(200 * mult);
@@ -108,11 +108,11 @@ async function* registeredBotScenario(presentMode: boolean): AsyncGenerator<SimE
   yield* gate1Pass(mult);
 
   yield { type: "step", stepId: "gate2", status: "active" };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) via WorldIDValidator", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 2", message: "Human: WorldIDValidator(0x1258f0).isHumanVerified(42)", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "gate2", status: "fail", detail: "NOT VERIFIED", timing: 600 };
-  yield { type: "terminal", tag: "GATE 2", message: "Human: isHumanVerified(42) -> false -- no human bond", termStatus: "fail" };
-  yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 2 -- agent not human-verified", termStatus: "fail" };
+  yield { type: "terminal", tag: "GATE 2", message: "isHumanVerified(42) -> false (no World ID bond)", termStatus: "fail" };
+  yield { type: "terminal", tag: "CRE", message: "Pipeline HALTED at Gate 2 -- no proof-of-personhood", termStatus: "fail" };
 
   yield { type: "skipAfter" as any, skipAfter: "gate2" } as any;
   await delay(200 * mult);
@@ -131,25 +131,21 @@ async function* verifiedAgentScenario(presentMode: boolean): AsyncGenerator<SimE
   yield* gate2Pass(mult);
 
   // Gate 3 — KYC not required for Tier 2, skip
-  yield { type: "step", stepId: "gate3", status: "active" };
   yield { type: "terminal", tag: "GATE 3", message: "KYC: not required for Tier 2 request, skipping", termStatus: "info" };
-  await delay(200 * mult);
-  yield { type: "step", stepId: "gate3", status: "pass", detail: "Not required", timing: 200 };
+  yield { type: "step", stepId: "gate3", status: "skipped", detail: "Not required" };
 
   // Gate 4 — Credit not required for Tier 2, skip
-  yield { type: "step", stepId: "gate4", status: "active" };
   yield { type: "terminal", tag: "GATE 4", message: "Credit: not required for Tier 2 request, skipping", termStatus: "info" };
-  await delay(200 * mult);
-  yield { type: "step", stepId: "gate4", status: "pass", detail: "Not required", timing: 200 };
+  yield { type: "step", stepId: "gate4", status: "skipped", detail: "Not required" };
 
   yield* donConsensus(mult);
 
   // ACE
   yield { type: "step", stepId: "ace", status: "active" };
-  yield { type: "terminal", tag: "ACE", message: "Executing TieredPolicy.runPolicy(42)...", termStatus: "info" };
+  yield { type: "terminal", tag: "ACE", message: "TieredPolicy(0xdb20a5).runPolicy(42)...", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "step", stepId: "ace", status: "pass", detail: "Policy approved", timing: 600 };
-  yield { type: "terminal", tag: "ACE", message: "Policy executed -- AccessGranted(42, 0xAl1c3, tier=2)", termStatus: "pass" };
+  yield { type: "terminal", tag: "ACE", message: "AccessGranted(agentId=42, human=0x5472...2603, tier=2)", termStatus: "pass" };
 
   // Result
   yield { type: "step", stepId: "result", status: "active" };
@@ -158,24 +154,24 @@ async function* verifiedAgentScenario(presentMode: boolean): AsyncGenerator<SimE
   yield { type: "terminal", tag: "RESULT", message: "Access GRANTED. Tier 2 -> Image generation unlocked", termStatus: "pass" };
   yield { type: "terminal", tag: "x402", message: "$0.50 USDC payment finalized", termStatus: "pass" };
 
-  yield { type: "result", result: { granted: true, accountableHuman: "0xAl1c3000000000000000000000000000000cafe", tier: 2 } };
+  yield { type: "result", result: { granted: true, accountableHuman: "0x547289319C3e6aedB179C0b8e8aF0B5ACd062603", tier: 2 } };
 }
 
 // ── Shared: Gate 3 pass (KYC via Confidential HTTP) ──
 
 async function* gate3Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate3", status: "active" };
-  yield { type: "terminal", tag: "GATE 3", message: "KYC: Stripe Identity via Confidential HTTP", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 3", message: "KYC: StripeKYCValidator(0xebba79).isKYCVerified(42)", termStatus: "info" };
   await delay(400 * mult);
-  yield { type: "terminal", tag: "CRE", message: "TEE enclave initialized — secrets isolated from DON nodes", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Confidential HTTP: TEE enclave initialized, secrets isolated from DON nodes", termStatus: "info" };
   await delay(300 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Loading STRIPE_SECRET_KEY from DON vault (never exposed to nodes)", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Loading STRIPE_SECRET_KEY from encrypted DON vault", termStatus: "info" };
   await delay(300 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Calling Stripe API inside enclave: GET /v1/identity/verification_sessions/vs_1N...", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Enclave call: GET /v1/identity/verification_sessions/vs_1N...", termStatus: "info" };
   await delay(500 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Response AES-GCM encrypted end-to-end", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Response AES-GCM encrypted end-to-end (plaintext never leaves enclave)", termStatus: "info" };
   await delay(200 * mult);
-  yield { type: "terminal", tag: "GATE 3", message: 'status="verified" -> KYC passed', termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 3", message: 'isKYCVerified(42) -> true (sessionHash: 0x7a3f...)', termStatus: "pass" };
   yield { type: "step", stepId: "gate3", status: "pass", detail: "KYC verified", timing: 1700 };
 }
 
@@ -183,15 +179,15 @@ async function* gate3Pass(mult: number): AsyncGenerator<SimEvent> {
 
 async function* gate4Pass(mult: number): AsyncGenerator<SimEvent> {
   yield { type: "step", stepId: "gate4", status: "active" };
-  yield { type: "terminal", tag: "GATE 4", message: "Credit: Plaid via Confidential HTTP", termStatus: "info" };
+  yield { type: "terminal", tag: "GATE 4", message: "Credit: PlaidCreditValidator(0x07e865).hasCreditScore(42)", termStatus: "info" };
   await delay(400 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Loading PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ACCESS_TOKEN from DON vault", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Confidential HTTP: Loading PLAID_CLIENT_ID, PLAID_SECRET from DON vault", termStatus: "info" };
   await delay(300 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Calling Plaid API inside enclave: POST /accounts/balance/get", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "Enclave call: POST /accounts/balance/get (SGX attestation attached)", termStatus: "info" };
   await delay(600 * mult);
-  yield { type: "terminal", tag: "CRE", message: "Response AES-GCM encrypted end-to-end", termStatus: "info" };
+  yield { type: "terminal", tag: "CRE", message: "TEE report: 12 accounts analyzed, score computed inside enclave", termStatus: "info" };
   await delay(200 * mult);
-  yield { type: "terminal", tag: "GATE 4", message: "12 accounts -> score: 95/100 -> Credit passed", termStatus: "pass" };
+  yield { type: "terminal", tag: "GATE 4", message: "getCreditScore(42) -> 95/100 (TEE-attested, dataHash: 0x9b2e...)", termStatus: "pass" };
   yield { type: "step", stepId: "gate4", status: "pass", detail: "Score: 95/100", timing: 1500 };
 }
 
@@ -206,20 +202,18 @@ async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent>
   yield* gate3Pass(mult);
 
   // Gate 4 — Credit not required for Tier 3, skip
-  yield { type: "step", stepId: "gate4", status: "active" };
   yield { type: "terminal", tag: "GATE 4", message: "Credit: not required for Tier 3 request, skipping", termStatus: "info" };
-  await delay(200 * mult);
-  yield { type: "step", stepId: "gate4", status: "pass", detail: "Not required", timing: 200 };
+  yield { type: "step", stepId: "gate4", status: "skipped", detail: "Not required" };
 
   yield* donConsensus(mult);
 
   // ACE
   yield { type: "step", stepId: "ace", status: "active" };
-  yield { type: "terminal", tag: "ACE", message: "Executing TieredPolicy.runPolicy(42)...", termStatus: "info" };
+  yield { type: "terminal", tag: "ACE", message: "TieredPolicy(0xdb20a5).runPolicy(42)...", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "terminal", tag: "ACE", message: "6 checks passed: CRE + tier + identity + human + worldID + KYC", termStatus: "info" };
   yield { type: "step", stepId: "ace", status: "pass", detail: "Policy approved", timing: 600 };
-  yield { type: "terminal", tag: "ACE", message: "Policy executed -- AccessGranted(42, 0xAl1c3, tier=3)", termStatus: "pass" };
+  yield { type: "terminal", tag: "ACE", message: "AccessGranted(agentId=42, human=0x5472...2603, tier=3)", termStatus: "pass" };
 
   // Result
   yield { type: "step", stepId: "result", status: "active" };
@@ -228,7 +222,7 @@ async function* kycAgentScenario(presentMode: boolean): AsyncGenerator<SimEvent>
   yield { type: "terminal", tag: "RESULT", message: "Access GRANTED. Tier 3 -> Video generation unlocked", termStatus: "pass" };
   yield { type: "terminal", tag: "x402", message: "$1.00 USDC payment finalized", termStatus: "pass" };
 
-  yield { type: "result", result: { granted: true, accountableHuman: "0xAl1c3000000000000000000000000000000cafe", tier: 3 } };
+  yield { type: "result", result: { granted: true, accountableHuman: "0x547289319C3e6aedB179C0b8e8aF0B5ACd062603", tier: 3 } };
 }
 
 // ── Act 5: Credit Agent — passes all 4 gates → Premium gen (Tier 4) ──
@@ -246,11 +240,11 @@ async function* creditAgentScenario(presentMode: boolean): AsyncGenerator<SimEve
 
   // ACE
   yield { type: "step", stepId: "ace", status: "active" };
-  yield { type: "terminal", tag: "ACE", message: "Executing TieredPolicy.runPolicy(42)...", termStatus: "info" };
+  yield { type: "terminal", tag: "ACE", message: "TieredPolicy(0xdb20a5).runPolicy(42)...", termStatus: "info" };
   await delay(600 * mult);
   yield { type: "terminal", tag: "ACE", message: "8 checks passed: CRE + tier + identity + human + worldID + KYC + hasCredit + score>=50", termStatus: "info" };
   yield { type: "step", stepId: "ace", status: "pass", detail: "Policy approved", timing: 600 };
-  yield { type: "terminal", tag: "ACE", message: "Policy executed -- AccessGranted(42, 0xAl1c3, tier=4)", termStatus: "pass" };
+  yield { type: "terminal", tag: "ACE", message: "AccessGranted(agentId=42, human=0x5472...2603, tier=4)", termStatus: "pass" };
 
   // Result
   yield { type: "step", stepId: "result", status: "active" };
@@ -259,7 +253,7 @@ async function* creditAgentScenario(presentMode: boolean): AsyncGenerator<SimEve
   yield { type: "terminal", tag: "RESULT", message: "Access GRANTED. Tier 4 -> Premium/unrestricted generation unlocked", termStatus: "pass" };
   yield { type: "terminal", tag: "x402", message: "$2.00 USDC payment finalized", termStatus: "pass" };
 
-  yield { type: "result", result: { granted: true, accountableHuman: "0xAl1c3000000000000000000000000000000cafe", tier: 4 } };
+  yield { type: "result", result: { granted: true, accountableHuman: "0x547289319C3e6aedB179C0b8e8aF0B5ACd062603", tier: 4 } };
 }
 
 export async function GET(request: NextRequest) {

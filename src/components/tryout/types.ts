@@ -22,6 +22,7 @@ export interface TierData {
   };
   kycData?: { verified: boolean; sessionHash: string; verifiedAt: number } | null;
   creditData?: { score: number; dataHash: string; verifiedAt: number; hasScore: boolean } | null;
+  creditTxHash?: string | null;
 }
 
 export type KYCStatus = "idle" | "creating" | "verifying" | "submitting" | "done" | "error";
@@ -98,6 +99,57 @@ export const initialTryoutState: TryoutState = {
   creditStatus: "idle",
 };
 
+const STORAGE_KEY = "ww-tryout-progress";
+
+export function loadPersistedState(): TryoutState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { ...initialTryoutState, pipeline: PIPELINE_STEPS.map((s) => ({ ...s })), tierData: { ...initialTierData } };
+    const data = JSON.parse(raw);
+    // Only restore if the wallet was connected and agent registered
+    if (!data.wallet?.connected || !data.agent?.id) {
+      return { ...initialTryoutState, pipeline: PIPELINE_STEPS.map((s) => ({ ...s })), tierData: { ...initialTierData } };
+    }
+    return {
+      ...initialTryoutState,
+      pipeline: PIPELINE_STEPS.map((s) => ({ ...s })),
+      phase: data.phase || 1,
+      wallet: data.wallet,
+      agent: {
+        ...data.agent,
+        id: data.agent.id ? BigInt(data.agent.id) : undefined,
+        // Don't restore agentWallet/agentFunded — those are ephemeral keys
+        // created fresh each session after World ID verification
+        agentWallet: undefined,
+        agentFunded: undefined,
+      },
+      tierData: { ...initialTierData, ...data.tierData },
+      kycStatus: data.kycStatus === "done" ? "done" : "idle",
+      creditStatus: data.creditStatus === "done" ? "done" : "idle",
+      generation: data.generation,
+      videoGeneration: data.videoGeneration,
+    };
+  } catch {
+    return { ...initialTryoutState, pipeline: PIPELINE_STEPS.map((s) => ({ ...s })), tierData: { ...initialTierData } };
+  }
+}
+
+export function getPersistedStep(): string | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data.wallet?.connected || !data.agent?.id) return null;
+    return data.step || null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPersistedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+}
+
 export function tryoutReducer(state: TryoutState, action: TryoutAction): TryoutState {
   switch (action.type) {
     case "SET_PHASE":
@@ -115,7 +167,7 @@ export function tryoutReducer(state: TryoutState, action: TryoutAction): TryoutS
         isRunning: false,
         prompt: "",
         isGenerating: false,
-        generation: undefined,
+        // Preserve generation (image) — only cleared by RESET_ALL or explicit SET_GENERATION
       };
     case "UPDATE_STEP":
       return {

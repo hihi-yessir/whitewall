@@ -5,6 +5,28 @@ import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TerminalEntry } from "./types";
 
+const TX_HASH_RE = /(0x[a-fA-F0-9]{8,64})/g;
+const BASESCAN = "https://sepolia.basescan.org/tx/";
+
+function linkifyTxHashes(message: string, linkColor: string): React.ReactNode {
+  const parts = message.split(TX_HASH_RE);
+  if (parts.length === 1) return message;
+  return parts.map((part, i) =>
+    TX_HASH_RE.test(part) ? (
+      <a
+        key={i}
+        href={`${BASESCAN}${part}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: linkColor, textDecoration: "underline", textUnderlineOffset: 2 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {part.slice(0, 10)}...
+      </a>
+    ) : part
+  );
+}
+
 export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
   const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
@@ -221,7 +243,9 @@ export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
                   }}>
                     {entry.tag}
                   </span>
-                  <span style={{ color: t.ink, flex: 1 }}>{entry.message}</span>
+                  <span style={{ color: t.ink, flex: 1 }}>
+                    {linkifyTxHashes(entry.message, t.blue)}
+                  </span>
                   {count > 1 && (
                     <span style={{
                       fontSize: 9,

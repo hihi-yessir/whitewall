@@ -69,7 +69,7 @@ function ResultStrip({ result, generation }: {
           textTransform: "uppercase",
           whiteSpace: "nowrap",
         }}>
-          {result.granted ? "\u2705 Access Granted" : "\u274C Access Denied"}
+          {result.granted ? "Access Granted" : "Access Denied"}
         </span>
 
         {/* Tier */}

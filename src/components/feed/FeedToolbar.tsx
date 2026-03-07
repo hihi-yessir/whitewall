@@ -17,11 +17,15 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
   const mobile = useIsMobile();
   const [focused, setFocused] = useState(false);
 
+  const approvalRate = stats.total > 0 ? Math.round((stats.granted / stats.total) * 100) : 0;
+
   const statItems = [
     { value: stats.total, color: t.ink, label: "total" },
     { value: stats.granted, color: t.green, label: "approved" },
     { value: stats.denied, color: t.red, label: "denied" },
     { value: stats.uniqueAgents, color: t.blue, label: "agents" },
+    { value: stats.teeVerified, color: "#f59e0b", label: "TEE" },
+    { value: `${approvalRate}%`, color: t.green, label: "rate" },
   ];
 
   return (
@@ -29,6 +33,30 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
       padding: mobile ? "10px 12px" : "12px 0",
       display: "flex", flexDirection: "column", gap: 8,
     }}>
+      {/* Live Registry header */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        paddingBottom: 6, borderBottom: `1px solid ${t.cardBorder}15`,
+      }}>
+        <span style={{
+          width: 7, height: 7, borderRadius: "50%",
+          background: t.green, animation: "demoPulse 2s ease-in-out infinite",
+          flexShrink: 0,
+        }} />
+        <span style={{
+          fontSize: 11, fontWeight: 800, letterSpacing: 2,
+          textTransform: "uppercase", color: t.inkMuted,
+        }}>
+          Live Registry
+        </span>
+        <span style={{
+          fontSize: 10, color: `${t.inkMuted}80`, fontWeight: 500,
+          marginLeft: "auto",
+        }}>
+          {stats.total > 0 ? `${stats.total} license plates issued` : "Waiting for first registration..."}
+        </span>
+      </div>
+
       <div style={{
         display: "flex", alignItems: "center", gap: mobile ? 8 : 16,
         flexWrap: "wrap",
@@ -42,7 +70,7 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
           <span style={{
             position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
             fontSize: 13, color: t.inkMuted, pointerEvents: "none",
-          }}>{"\uD83D\uDD0D"}</span>
+          }}>{"\u2315"}</span>
           <input
             type="text"
             value={searchValue}

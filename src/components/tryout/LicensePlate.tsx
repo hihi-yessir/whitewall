@@ -1,12 +1,15 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState, useCallback } from "react";
+import { createPublicClient, http } from "viem";
+import { baseSepolia } from "viem/chains";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TryoutState, KYCStatus, CreditStatus } from "./types";
 
+
 const CHECKS = [
-  { key: "registered" as const, label: "REG", full: "Registered", hashKey: "register" as const },
+  { key: "registered" as const, label: "REGIST", full: "Registered", hashKey: "register" as const },
   { key: "humanVerified" as const, label: "HUMAN", full: "Human Verified", hashKey: "worldId" as const },
   { key: "kycVerified" as const, label: "KYC", full: "KYC Passed", hashKey: "kyc" as const },
   { key: "hasCreditScore" as const, label: "CREDIT", full: "Credit Score", hashKey: "credit" as const },
@@ -61,6 +64,33 @@ export function LicensePlate({ state }: { state: TryoutState }) {
     });
     prevChecks.current = current;
   }, [state.tierData.registered, state.tierData.humanVerified, state.tierData.kycVerified, state.tierData.hasCreditScore]);
+
+  // Live USDC balance of agent wallet — only show once past phase 1 (agent bootstrapped)
+  const [usdcBal, setUsdcBal] = useState<string | null>(null);
+  const shouldShowBalance = !!state.agent.agentWallet && !!state.agent.agentFunded;
+  const fetchBalance = useCallback(async () => {
+    if (!state.agent.agentWallet) return;
+    try {
+      const pc = createPublicClient({ chain: baseSepolia, transport: http() });
+      const bal = await pc.readContract({
+        address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        abi: [{ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" }] as const,
+        functionName: "balanceOf",
+        args: [state.agent.agentWallet as `0x${string}`],
+      });
+      setUsdcBal((Number(bal) / 1e6).toFixed(2));
+    } catch { /* silent */ }
+  }, [state.agent.agentWallet]);
+
+  useEffect(() => {
+    if (!shouldShowBalance) { setUsdcBal(null); return; }
+    fetchBalance();
+    const iv = setInterval(fetchBalance, 15000);
+    return () => clearInterval(iv);
+  }, [shouldShowBalance, fetchBalance]);
+
+  // Also refresh when generation changes (agent just paid)
+  useEffect(() => { if (shouldShowBalance) fetchBalance(); }, [state.generation, state.videoGeneration, shouldShowBalance, fetchBalance]);
 
   const td = state.tierData;
   const tier = td.effectiveTier;
@@ -161,15 +191,20 @@ export function LicensePlate({ state }: { state: TryoutState }) {
                 }}
               />
             ) : (
-              <span style={{
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: 1,
-                color: `${t.cardBorder}60`,
-                textTransform: "uppercase",
+              <div style={{
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: 6, color: t.inkMuted,
+                width: "100%", height: "100%",
               }}>
-                No Photo
-              </span>
+                <span style={{ fontSize: 20, opacity: 0.6, fontWeight: 300 }}>{"\u25A1"}</span>
+                <span style={{
+                  fontSize: 8, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase",
+                  opacity: 0.7,
+                }}>
+                  Awaiting Image
+                </span>
+              </div>
             )}
           </div>
 
@@ -207,6 +242,14 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               {agentWallet && (
                 <span style={{ color: `${t.inkMuted}80` }}>
                   {" \u00B7 "}{shorten(agentWallet)}
+                </span>
+              )}
+              {usdcBal !== null && (
+                <span style={{
+                  color: parseFloat(usdcBal) > 0 ? t.green : t.red,
+                  fontWeight: 700,
+                }}>
+                  {" \u00B7 "}{usdcBal} USDC
                 </span>
               )}
             </div>
@@ -331,7 +374,7 @@ export function LicensePlate({ state }: { state: TryoutState }) {
                   color: unlocked ? t.green : `${t.inkMuted}80`,
                   transition: "color .3s",
                 }}>
-                  {r.label} {unlocked ? "\u2713" : "\uD83D\uDD12"}
+                  {r.label} {unlocked ? "\u2713" : "\u2014"}
                 </span>
               );
             })}
@@ -349,16 +392,48 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               fontFamily: "'SF Mono','Fira Code',monospace",
               fontSize: 11,
               color: t.inkMuted,
-              lineHeight: 1.6,
+              lineHeight: 1.8,
             }}>
               {td.kycData?.verified && (
-                <span>kycVerified: <span style={{ color: t.green }}>true</span></span>
-              )}
-              {td.kycData?.verified && td.creditData?.hasScore && (
-                <span style={{ margin: "0 8px", opacity: 0.3 }}>{"\u00B7"}</span>
+                <div>kycVerified: <span style={{ color: t.green }}>true</span></div>
               )}
               {td.creditData?.hasScore && (
-                <span>creditScore: <span style={{ color: t.blue }}>{td.creditData.score}</span></span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span>creditScore: <span style={{ color: t.blue }}>{td.creditData.score}</span></span>
+                  <span
+                    title="Uses SGX quotes for efficiency"
+                    style={{
+                      fontSize: 8, fontWeight: 800, letterSpacing: 0.5,
+                      padding: "1px 5px", borderRadius: 3,
+                      background: `${t.green}12`, border: `1px solid ${t.green}25`,
+                      color: t.green, textTransform: "uppercase", cursor: "default",
+                    }}
+                  >
+                    TEE Verified
+                  </span>
+                </div>
+              )}
+              {td.creditData?.hasScore && td.creditData.dataHash && (
+                <div style={{ fontSize: 9, opacity: 0.6 }}>
+                  dataHash: {td.creditData.dataHash.slice(0, 10)}...
+                  {td.creditData.verifiedAt > 0 && (
+                    <span> {"\u00B7"} {new Date(td.creditData.verifiedAt * 1000).toLocaleString()}</span>
+                  )}
+                </div>
+              )}
+              {td.creditTxHash && (
+                <a
+                  href={`https://sepolia.basescan.org/tx/${td.creditTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View TEE-attested credit score transaction with SGX quotes"
+                  style={{
+                    fontSize: 8, fontFamily: "'SF Mono','Fira Code',monospace",
+                    color: t.blue, textDecoration: "none", opacity: 0.7,
+                  }}
+                >
+                  TEE tx: {td.creditTxHash.slice(0, 10)}...
+                </a>
               )}
             </div>
           </div>
@@ -375,13 +450,10 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               overflow: "hidden",
               border: `1px solid ${t.cardBorder}30`,
             }}>
-              <video
+              <img
                 src={state.videoGeneration!.imageUrl}
-                autoPlay
-                muted
-                playsInline
-                loop
-                style={{ width: "100%", display: "block" }}
+                alt={state.videoGeneration!.prompt}
+                style={{ width: "100%", display: "block", objectFit: "contain" }}
               />
             </div>
             <div style={{
@@ -417,7 +489,7 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               letterSpacing: 0.5,
               color: state.result!.granted ? t.green : t.red,
             }}>
-              {state.result!.granted ? "\u2705 ACCESS GRANTED" : "\u274C ACCESS DENIED"}
+              {state.result!.granted ? "ACCESS GRANTED" : "ACCESS DENIED"}
             </span>
             {state.result!.granted && state.result!.tier !== undefined && (
               <span style={{

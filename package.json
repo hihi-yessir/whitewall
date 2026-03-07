@@ -13,7 +13,7 @@
     "@stripe/stripe-js": "^8.8.0",
     "@upstash/redis": "^1.36.2",
     "@vercel/blob": "^2.2.0",
-    "@whitewall-os/sdk": "^0.2.0",
+    "@whitewall-os/sdk": "^0.3.0",
     "@worldcoin/idkit": "^2.4.2",
     "@x402/core": "^2.5.0",
     "@x402/evm": "^2.5.0",

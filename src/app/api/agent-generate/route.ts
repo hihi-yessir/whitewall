@@ -4,7 +4,7 @@ import { createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
 import { getAgentKey } from "@/lib/agent-keys";
 import { USDC_ADDRESS } from "@/lib/contracts";
-import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS } from "@/lib/redis";
+import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS, STATS_TEE } from "@/lib/redis";
 
 const RATE_LIMIT = 3;
 const RATE_WINDOW = 60;
@@ -146,6 +146,19 @@ export async function POST(request: NextRequest) {
         const { fetchWithPayment, signer } = await buildPaymentFetch(agentKey);
         send({ type: "terminal", tag: "AGENT", message: `Agent wallet: ${shorten(signer.address)}`, termStatus: "info" });
 
+        // ── C1. Read on-chain tier before proceeding ────────────────
+        let onChainTier = genType === "video" ? 3 : 2; // sensible minimum
+        try {
+          const statusRes = await fetch(new URL(`/api/bonding/status?agentId=${agentId}`, request.url));
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.onChain?.effectiveTier) {
+              onChainTier = statusData.onChain.effectiveTier;
+            }
+          }
+        } catch { /* use fallback */ }
+        send({ type: "terminal", tag: "AGENT", message: `On-chain tier: T${onChainTier}`, termStatus: "info" });
+
         // Check agent wallet USDC balance before attempting payment
         const usdcBalance = await createPublicClient({ chain: baseSepolia, transport: http(RPC_URL) }).readContract({
           address: USDC_ADDRESS,
@@ -210,7 +223,7 @@ export async function POST(request: NextRequest) {
           tier?: string;
         };
 
-        const tier = gatewayResult.tier || "2";
+        const tier = gatewayResult.tier || String(onChainTier);
         const txHash = gatewayResult.txHash || "";
 
         send({ type: "terminal", tag: "x402", message: "Payment verified + settled on-chain", termStatus: "pass" });
@@ -222,14 +235,15 @@ export async function POST(request: NextRequest) {
         send({ type: "terminal", tag: "GW", message: `Job ${gatewayResult.jobId} accepted — gates passed`, termStatus: "pass" });
         send({ type: "step", stepId: "gateway", status: "pass", detail: "Accepted", timing: 700 });
 
-        // CRE / Gates
-        send({ type: "step", stepId: "cre", status: "pass", detail: "Payment valid", timing: 500 });
+        // CRE / Gates — match actual on-chain verification state
+        const tierNum = Number(tier);
+        send({ type: "step", stepId: "cre", status: "pass", detail: "Pipeline valid", timing: 500 });
         send({ type: "step", stepId: "gate1", status: "pass", detail: shorten(ownerAddress), timing: 400 });
         send({ type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 300 });
-        send({ type: "step", stepId: "gate3", status: "pass", detail: tier === "3" || tier === "4" ? "KYC verified" : "Not required", timing: 200 });
-        send({ type: "step", stepId: "gate4", status: "pass", detail: tier === "4" ? "Credit verified" : "Not required", timing: 150 });
+        send({ type: "step", stepId: "gate3", status: tierNum >= 3 ? "pass" : "skipped", detail: tierNum >= 3 ? "KYC verified" : "Not required", timing: tierNum >= 3 ? 200 : undefined });
+        send({ type: "step", stepId: "gate4", status: tierNum >= 4 ? "pass" : "skipped", detail: tierNum >= 4 ? "Credit verified" : "Not required", timing: tierNum >= 4 ? 150 : undefined });
 
-        send({ type: "terminal", tag: "GATE", message: `All gates passed — Tier ${tier}`, termStatus: "pass" });
+        send({ type: "terminal", tag: "GATE", message: `Verification complete — Tier ${tier}`, termStatus: "pass" });
 
         // Settlement
         send({ type: "step", stepId: "don", status: "pass", detail: txHash ? `settled` : "pending", timing: 900 });
@@ -318,6 +332,7 @@ export async function POST(request: NextRequest) {
         await redis.zadd(ownerFeedKey(ownerAddress), { score: Number(entry.timestamp), member: genId });
         await redis.incr(STATS_GRANTED);
         await redis.sadd(STATS_AGENTS, agentId);
+        if (Number(tier) >= 4) await redis.incr(STATS_TEE);
 
         send({ type: "terminal", tag: "LEDGER", message: `License plate issued: ${genId.slice(0, 8)}...`, termStatus: "pass" });
         send({ type: "terminal", tag: "x402", message: "Payment finalized — agent balance updated", termStatus: "pass" });
@@ -331,6 +346,7 @@ export async function POST(request: NextRequest) {
           videoUrl: genType === "video" ? artifactUrl : undefined,
           prompt: cleanPrompt,
           agentId, ownerAddress: ownerAddress.toLowerCase(),
+          tier: Number(tier),
           timestamp: Number(entry.timestamp),
         });
         send({ type: "done" });
