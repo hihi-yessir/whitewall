@@ -1,5 +1,8 @@
 <div align="center">
 
+<img src="assets/banner.svg" alt="whitewall" width="100%" />
+
+
 # whitewall
 
 **The wall that lets you through.**
