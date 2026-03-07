@@ -7,6 +7,7 @@ import { FeedNav } from "./FeedNav";
 import { FeedToolbar } from "./FeedToolbar";
 import { FeedListItem, FeedListItemSkeleton } from "./FeedListItem";
 import { FeedDetail } from "./FeedDetail";
+import { ActivityTimeline } from "./ActivityTimeline";
 import type { Generation, FeedStats, FeedResponse } from "./types";
 
 export default function FeedPage() {
@@ -22,7 +23,20 @@ export default function FeedPage() {
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [selectedEntry, setSelectedEntry] = useState<Generation | null>(null);
+  const [newEntryIds, setNewEntryIds] = useState<Set<string>>(new Set());
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Mark an entry as "new" with auto-clear after 3s
+  const markEntryNew = useCallback((id: string) => {
+    setNewEntryIds((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setNewEntryIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 3000);
+  }, []);
 
   const handleOwnerClick = useCallback((address: string) => {
     setSearchInput(address);
@@ -92,6 +106,7 @@ export default function FeedPage() {
               uniqueAgents: s.uniqueAgents,
               teeVerified: s.teeVerified + (entry.tier >= 4 ? 1 : 0),
             }));
+            markEntryNew(entry.id);
             return [entry, ...prev];
           });
         } catch {
@@ -111,7 +126,7 @@ export default function FeedPage() {
       eventSource?.close();
       clearTimeout(reconnectTimer);
     };
-  }, [ownerFilter]);
+  }, [ownerFilter, markEntryNew]);
 
   // Infinite scroll via IntersectionObserver
   const loadMore = useCallback(async () => {
@@ -148,6 +163,14 @@ export default function FeedPage() {
     return () => observer.disconnect();
   }, [loadMore]);
 
+  const handleAdminReset = useCallback(async () => {
+    setEntries([]);
+    setStats({ total: 0, granted: 0, denied: 0, uniqueAgents: 0, teeVerified: 0 });
+    setCursor(null);
+    setHasMore(false);
+    setSelectedEntry(null);
+  }, []);
+
   const detailOpen = selectedEntry !== null;
 
   return (
@@ -162,7 +185,7 @@ export default function FeedPage() {
         }} />
 
         <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-          <FeedNav />
+          <FeedNav onAdminReset={handleAdminReset} />
 
           {/* Main content area — frosted panel matching demo */}
           <div style={{
@@ -190,6 +213,9 @@ export default function FeedPage() {
                 isFiltering={ownerFilter !== null}
               />
             </div>
+
+            {/* Activity timeline */}
+            <ActivityTimeline />
 
             {/* List + detail flex container */}
             <div style={{
@@ -228,6 +254,7 @@ export default function FeedPage() {
                         key={entry.id}
                         entry={entry}
                         isSelected={selectedEntry?.id === entry.id}
+                        isNew={newEntryIds.has(entry.id)}
                         onSelect={() => setSelectedEntry(entry)}
                         onOwnerClick={handleOwnerClick}
                       />
@@ -284,6 +311,10 @@ export default function FeedPage() {
           @keyframes detailSlideIn {
             from { transform: translateX(100%); }
             to { transform: translateX(0); }
+          }
+          @keyframes feedEntryHighlight {
+            0% { background: ${t.blue}18; box-shadow: inset 0 0 0 1px ${t.blue}30; }
+            100% { background: transparent; box-shadow: inset 0 0 0 1px transparent; }
           }
           ::selection { background: ${t.blue}30; }
           ::-webkit-scrollbar { width: 6px; }

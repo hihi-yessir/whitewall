@@ -63,7 +63,7 @@ export function ThemeToggle() {
   const [h, setH] = useState(false);
   return (
     <button onClick={toggle} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
-      style={{ width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${h ? t.blue : t.cardBorder}`,
+      style={{ width: 44, height: 44, borderRadius: 8, border: `1.5px solid ${h ? t.blue : t.cardBorder}`,
         background: "transparent", cursor: "pointer", display: "flex", alignItems: "center",
         justifyContent: "center", transition: "all .2s", fontSize: 16, color: t.ink }}>
       {mode === "dark" ? "\u2600" : "\u263E"}

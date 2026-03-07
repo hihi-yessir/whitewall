@@ -1,11 +1,13 @@
 "use client";
 
-import { useContext, useEffect, useRef, useState, useCallback } from "react";
-import { createPublicClient, http } from "viem";
-import { baseSepolia } from "viem/chains";
+import { useContext, useEffect, useRef, useState } from "react";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TryoutState, KYCStatus, CreditStatus } from "./types";
+import { proxyMedia } from "@/lib/media";
+
+const BASESCAN = "https://sepolia.basescan.org";
+const IDENTITY_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e";
 
 
 const CHECKS = [
@@ -65,32 +67,6 @@ export function LicensePlate({ state }: { state: TryoutState }) {
     prevChecks.current = current;
   }, [state.tierData.registered, state.tierData.humanVerified, state.tierData.kycVerified, state.tierData.hasCreditScore]);
 
-  // Live USDC balance of agent wallet — only show once past phase 1 (agent bootstrapped)
-  const [usdcBal, setUsdcBal] = useState<string | null>(null);
-  const shouldShowBalance = !!state.agent.agentWallet && !!state.agent.agentFunded;
-  const fetchBalance = useCallback(async () => {
-    if (!state.agent.agentWallet) return;
-    try {
-      const pc = createPublicClient({ chain: baseSepolia, transport: http() });
-      const bal = await pc.readContract({
-        address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-        abi: [{ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" }] as const,
-        functionName: "balanceOf",
-        args: [state.agent.agentWallet as `0x${string}`],
-      });
-      setUsdcBal((Number(bal) / 1e6).toFixed(2));
-    } catch { /* silent */ }
-  }, [state.agent.agentWallet]);
-
-  useEffect(() => {
-    if (!shouldShowBalance) { setUsdcBal(null); return; }
-    fetchBalance();
-    const iv = setInterval(fetchBalance, 15000);
-    return () => clearInterval(iv);
-  }, [shouldShowBalance, fetchBalance]);
-
-  // Also refresh when generation changes (agent just paid)
-  useEffect(() => { if (shouldShowBalance) fetchBalance(); }, [state.generation, state.videoGeneration, shouldShowBalance, fetchBalance]);
 
   const td = state.tierData;
   const tier = td.effectiveTier;
@@ -98,8 +74,6 @@ export function LicensePlate({ state }: { state: TryoutState }) {
   const agentId = state.agent.id?.toString();
   const ownerAddr = state.wallet.address;
   const agentWallet = state.agent.agentWallet;
-
-  const shorten = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
   const tierColor = tier >= 4 ? t.green : tier >= 2 ? t.blue : tier >= 1 ? t.ink : t.inkMuted;
 
@@ -181,7 +155,7 @@ export function LicensePlate({ state }: { state: TryoutState }) {
           }}>
             {hasImage ? (
               <img
-                src={state.generation!.imageUrl}
+                src={proxyMedia(state.generation!.imageUrl)}
                 alt={state.generation!.prompt}
                 style={{
                   width: "100%",
@@ -217,41 +191,111 @@ export function LicensePlate({ state }: { state: TryoutState }) {
             textAlign: mobile ? "center" : "left",
             minWidth: 0,
           }}>
-            {/* Agent ID */}
-            <div style={{
-              fontFamily: "'SF Mono','Fira Code',monospace",
-              fontSize: agentId ? (mobile ? 32 : 28) : (mobile ? 18 : 20),
-              fontWeight: 900,
-              letterSpacing: agentId ? 3 : 2,
-              color: agentId ? t.ink : `${t.cardBorder}80`,
-              lineHeight: 1,
-              transition: "color .3s",
-            }}>
-              {agentId ? `# ${agentId}` : "- - -"}
-            </div>
-
-            {/* Owner address */}
-            <div style={{
-              fontFamily: "'SF Mono','Fira Code',monospace",
-              fontSize: mobile ? 10 : 11,
-              fontWeight: 600,
-              color: ownerAddr ? t.inkMuted : `${t.cardBorder}60`,
-              letterSpacing: 1,
-            }}>
-              {ownerAddr ? shorten(ownerAddr) : "no wallet connected"}
-              {agentWallet && (
-                <span style={{ color: `${t.inkMuted}80` }}>
-                  {" \u00B7 "}{shorten(agentWallet)}
-                </span>
-              )}
-              {usdcBal !== null && (
+            {/* Agent ID + link icon */}
+            {agentId ? (
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <span style={{
-                  color: parseFloat(usdcBal) > 0 ? t.green : t.red,
-                  fontWeight: 700,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  fontSize: mobile ? 32 : 28,
+                  fontWeight: 900,
+                  letterSpacing: 3,
+                  color: t.ink,
+                  lineHeight: 1,
+                  transition: "color .3s",
                 }}>
-                  {" \u00B7 "}{usdcBal} USDC
+                  # {agentId}
                 </span>
-              )}
+                <a
+                  href={`${BASESCAN}/token/${IDENTITY_REGISTRY}?a=${agentId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View ERC-8004 identity on BaseScan"
+                  style={{
+                    fontSize: 14,
+                    color: t.blue,
+                    textDecoration: "none",
+                    opacity: 0.7,
+                    transition: "opacity .2s",
+                    lineHeight: 1,
+                  }}
+                >
+                  {"\u2197"}
+                </a>
+              </div>
+            ) : (
+              <div style={{
+                fontFamily: "'SF Mono','Fira Code',monospace",
+                fontSize: mobile ? 18 : 20,
+                fontWeight: 900,
+                letterSpacing: 2,
+                color: `${t.cardBorder}80`,
+                lineHeight: 1,
+              }}>
+                - - -
+              </div>
+            )}
+
+            {/* Agent + Owner addresses */}
+            <div style={{
+              fontFamily: "'SF Mono','Fira Code',monospace",
+              fontSize: mobile ? 9 : 10,
+              fontWeight: 600,
+              color: t.inkMuted,
+              letterSpacing: 0.5,
+              wordBreak: "break-all",
+              overflowWrap: "anywhere",
+              lineHeight: 1.6,
+            }}>
+              {/* Agent wallet — primary identity */}
+              {agentWallet ? (
+                <div>
+                  <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: t.blue, opacity: 0.7 }}>
+                    agent
+                  </span>{" "}
+                  <a
+                    href={`${BASESCAN}/address/${agentWallet}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: t.ink, textDecoration: "none" }}
+                  >
+                    {agentWallet}
+                  </a>
+                </div>
+              ) : null}
+              {/* Owner + NFT contract — single compact line */}
+              <div style={{ marginTop: agentWallet ? 2 : 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: `${t.inkMuted}80` }}>
+                  owner
+                </span>
+                {ownerAddr ? (
+                  <a
+                    href={`${BASESCAN}/address/${ownerAddr}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: t.inkMuted, textDecoration: "none" }}
+                  >
+                    {ownerAddr.slice(0, 6)}...{ownerAddr.slice(-4)}
+                  </a>
+                ) : (
+                  <span style={{ color: `${t.cardBorder}60` }}>---</span>
+                )}
+                {agentId && (
+                  <>
+                    <span style={{ color: `${t.cardBorder}40` }}>{"\u00B7"}</span>
+                    <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: `${t.inkMuted}60` }}>
+                      nft
+                    </span>
+                    <a
+                      href={`${BASESCAN}/address/${IDENTITY_REGISTRY}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: `${t.inkMuted}80`, textDecoration: "none" }}
+                    >
+                      {IDENTITY_REGISTRY.slice(0, 6)}...{IDENTITY_REGISTRY.slice(-4)}
+                    </a>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* 2×2 badge grid */}
@@ -297,9 +341,10 @@ export function LicensePlate({ state }: { state: TryoutState }) {
                     </span>
                     {hash && (
                       <a
-                        href={`https://sepolia.basescan.org/tx/${hash}`}
+                        href={`${BASESCAN}/tx/${hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        title={hash}
                         style={{
                           marginLeft: "auto",
                           fontSize: 7,
@@ -309,7 +354,7 @@ export function LicensePlate({ state }: { state: TryoutState }) {
                           opacity: 0.7,
                         }}
                       >
-                        {hash.slice(0, 6)}..
+                        tx {"\u2197"}
                       </a>
                     )}
                   </div>
@@ -400,40 +445,64 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               {td.creditData?.hasScore && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span>creditScore: <span style={{ color: t.blue }}>{td.creditData.score}</span></span>
-                  <span
-                    title="Uses SGX quotes for efficiency"
-                    style={{
-                      fontSize: 8, fontWeight: 800, letterSpacing: 0.5,
-                      padding: "1px 5px", borderRadius: 3,
-                      background: `${t.green}12`, border: `1px solid ${t.green}25`,
-                      color: t.green, textTransform: "uppercase", cursor: "default",
-                    }}
-                  >
-                    TEE Verified
-                  </span>
-                </div>
-              )}
-              {td.creditData?.hasScore && td.creditData.dataHash && (
-                <div style={{ fontSize: 9, opacity: 0.6 }}>
-                  dataHash: {td.creditData.dataHash.slice(0, 10)}...
+                  {td.creditTxHash ? (
+                    <a
+                      href={`${BASESCAN}/tx/${td.creditTxHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`TEE tx: ${td.creditTxHash}`}
+                      style={{
+                        fontSize: 8, fontWeight: 800, letterSpacing: 0.5,
+                        padding: "1px 5px", borderRadius: 3,
+                        background: `${t.green}12`, border: `1px solid ${t.green}25`,
+                        color: t.green, textTransform: "uppercase",
+                        textDecoration: "none",
+                      }}
+                    >
+                      TEE Verified {"\u2197"}
+                    </a>
+                  ) : (
+                    <span
+                      title="TEE-attested verification"
+                      style={{
+                        fontSize: 8, fontWeight: 800, letterSpacing: 0.5,
+                        padding: "1px 5px", borderRadius: 3,
+                        background: `${t.green}12`, border: `1px solid ${t.green}25`,
+                        color: t.green, textTransform: "uppercase", cursor: "default",
+                      }}
+                    >
+                      TEE Verified
+                    </span>
+                  )}
+                  {td.creditData.dataHash && (
+                    td.creditTxHash ? (
+                      <a
+                        href={`${BASESCAN}/tx/${td.creditTxHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={td.creditData.dataHash}
+                        style={{
+                          fontSize: 9, color: `${t.inkMuted}80`,
+                          textDecoration: "none",
+                        }}
+                      >
+                        dataHash: {td.creditData.dataHash.slice(0, 8)}... {"\u2197"}
+                      </a>
+                    ) : (
+                      <span
+                        title={td.creditData.dataHash}
+                        style={{ fontSize: 9, color: `${t.inkMuted}60` }}
+                      >
+                        dataHash: {td.creditData.dataHash.slice(0, 8)}...
+                      </span>
+                    )
+                  )}
                   {td.creditData.verifiedAt > 0 && (
-                    <span> {"\u00B7"} {new Date(td.creditData.verifiedAt * 1000).toLocaleString()}</span>
+                    <span style={{ fontSize: 9, color: `${t.inkMuted}60` }}>
+                      {"\u00B7"} {new Date(td.creditData.verifiedAt * 1000).toLocaleString()}
+                    </span>
                   )}
                 </div>
-              )}
-              {td.creditTxHash && (
-                <a
-                  href={`https://sepolia.basescan.org/tx/${td.creditTxHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="View TEE-attested credit score transaction with SGX quotes"
-                  style={{
-                    fontSize: 8, fontFamily: "'SF Mono','Fira Code',monospace",
-                    color: t.blue, textDecoration: "none", opacity: 0.7,
-                  }}
-                >
-                  TEE tx: {td.creditTxHash.slice(0, 10)}...
-                </a>
               )}
             </div>
           </div>
@@ -451,7 +520,7 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               border: `1px solid ${t.cardBorder}30`,
             }}>
               <img
-                src={state.videoGeneration!.imageUrl}
+                src={proxyMedia(state.videoGeneration!.imageUrl)}
                 alt={state.videoGeneration!.prompt}
                 style={{ width: "100%", display: "block", objectFit: "contain" }}
               />
@@ -501,13 +570,20 @@ export function LicensePlate({ state }: { state: TryoutState }) {
               </span>
             )}
             {state.result!.granted && state.result!.accountableHuman && (
-              <span style={{
-                fontSize: 10,
-                fontFamily: "'SF Mono','Fira Code',monospace",
-                color: t.inkMuted,
-              }}>
-                {"\u00B7"} {shorten(state.result!.accountableHuman)}
-              </span>
+              <a
+                href={`${BASESCAN}/address/${state.result!.accountableHuman}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontSize: 10,
+                  fontFamily: "'SF Mono','Fira Code',monospace",
+                  color: t.blue,
+                  textDecoration: "none",
+                  wordBreak: "break-all",
+                }}
+              >
+                {"\u00B7"} {mobile ? `${state.result!.accountableHuman.slice(0, 8)}...${state.result!.accountableHuman.slice(-4)}` : state.result!.accountableHuman}
+              </a>
             )}
             {!state.result!.granted && state.result!.reason && (
               <span style={{ fontSize: 10, color: t.inkMuted }}>

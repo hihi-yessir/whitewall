@@ -5,26 +5,37 @@ import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TerminalEntry } from "./types";
 
-const TX_HASH_RE = /(0x[a-fA-F0-9]{8,64})/g;
-const BASESCAN = "https://sepolia.basescan.org/tx/";
+const HEX_RE = /(0x[a-fA-F0-9]{8,64})/g;
+const BASESCAN_TX = "https://sepolia.basescan.org/tx/";
+const BASESCAN_ADDR = "https://sepolia.basescan.org/address/";
 
-function linkifyTxHashes(message: string, linkColor: string): React.ReactNode {
-  const parts = message.split(TX_HASH_RE);
+function linkifyHex(message: string, linkColor: string): React.ReactNode {
+  const parts = message.split(HEX_RE);
   if (parts.length === 1) return message;
-  return parts.map((part, i) =>
-    TX_HASH_RE.test(part) ? (
+  return parts.map((part, i) => {
+    if (!HEX_RE.test(part)) return part;
+    // 66 chars = tx hash (0x + 64), 42 chars = address (0x + 40)
+    const isTx = part.length === 66;
+    const isAddr = part.length === 42;
+    const href = isTx ? `${BASESCAN_TX}${part}` : isAddr ? `${BASESCAN_ADDR}${part}` : `${BASESCAN_TX}${part}`;
+    return (
       <a
         key={i}
-        href={`${BASESCAN}${part}`}
+        href={href}
         target="_blank"
         rel="noopener noreferrer"
-        style={{ color: linkColor, textDecoration: "underline", textUnderlineOffset: 2 }}
+        style={{
+          color: linkColor,
+          textDecoration: "underline",
+          textUnderlineOffset: 2,
+          wordBreak: "break-all",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        {part.slice(0, 10)}...
+        {part}
       </a>
-    ) : part
-  );
+    );
+  });
 }
 
 export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
@@ -90,7 +101,8 @@ export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
           display: "flex",
           alignItems: "center",
           gap: 8,
-          padding: mobile ? "7px 12px" : "7px 24px",
+          padding: mobile ? "12px 12px" : "7px 24px",
+          minHeight: mobile ? 44 : "auto",
           background: t.codeBg,
           borderTop: `1px solid ${t.cardBorder}60`,
           borderBottom: expanded ? `1px solid ${t.cardBorder}30` : "none",
@@ -209,7 +221,7 @@ export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
                   key={firstIdx}
                   style={{
                     fontFamily: "'SF Mono','Fira Code',monospace",
-                    fontSize: mobile ? 10 : 11,
+                    fontSize: mobile ? 11 : 11,
                     lineHeight: 1.8,
                     display: "flex",
                     gap: 8,
@@ -243,8 +255,8 @@ export function BottomTerminal({ entries }: { entries: TerminalEntry[] }) {
                   }}>
                     {entry.tag}
                   </span>
-                  <span style={{ color: t.ink, flex: 1 }}>
-                    {linkifyTxHashes(entry.message, t.blue)}
+                  <span style={{ color: t.ink, flex: 1, wordBreak: "break-all" }}>
+                    {linkifyHex(entry.message, t.blue)}
                   </span>
                   {count > 1 && (
                     <span style={{

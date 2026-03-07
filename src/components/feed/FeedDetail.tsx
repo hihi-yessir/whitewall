@@ -5,6 +5,7 @@ import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { Generation } from "./types";
 import { TIER_META } from "./types";
+import { proxyMedia } from "@/lib/media";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -86,7 +87,8 @@ export function FeedDetail({ entry, onClose, onOwnerClick }: {
             onClick={onClose}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              color: t.inkMuted, fontSize: 18, padding: "4px 8px",
+              color: t.inkMuted, fontSize: 18, padding: "10px 12px",
+              minHeight: 44, minWidth: 44,
               display: "flex", alignItems: "center", gap: 6,
               transition: "color .2s",
             }}
@@ -107,7 +109,7 @@ export function FeedDetail({ entry, onClose, onOwnerClick }: {
         <div style={{ padding: "16px 16px 0" }}>
           {granted && entry.imageUrl ? (
             <img
-              src={entry.imageUrl}
+              src={proxyMedia(entry.imageUrl)}
               alt={entry.prompt}
               style={{
                 width: "100%", maxHeight: 400, objectFit: "contain",
@@ -159,7 +161,8 @@ export function FeedDetail({ entry, onClose, onOwnerClick }: {
                     onClick={copyAddress}
                     style={{
                       background: "none", border: "none", cursor: "pointer",
-                      color: t.inkMuted, fontSize: 11, padding: "1px 4px",
+                      color: t.inkMuted, fontSize: 11, padding: "8px 10px",
+                      minHeight: 44, minWidth: 44,
                       borderRadius: 3, transition: "color .2s",
                     }}
                     title="Copy full address"
@@ -194,7 +197,7 @@ export function FeedDetail({ entry, onClose, onOwnerClick }: {
                       {tier.label}
                     </span>
                     {entry.tier >= 4 && (
-                      <span title="Uses SGX quotes for efficiency" style={{
+                      <span title="TEE-attested verification" style={{
                         fontSize: 8, fontWeight: 800, color: "#f59e0b",
                         padding: "1px 4px", borderRadius: 3,
                         background: "#f59e0b15", border: "1px solid #f59e0b30",

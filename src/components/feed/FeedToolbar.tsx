@@ -1,9 +1,51 @@
 "use client";
 
-import { useContext, useState } from "react";
+import { useContext, useState, useEffect, useRef } from "react";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { FeedStats } from "./types";
+
+/** Animated number that eases from previous value to current */
+function AnimatedNumber({ value, color }: { value: number | string; color: string }) {
+  const isString = typeof value === "string";
+  const numValue = isString ? parseFloat(value) || 0 : value;
+  const [displayed, setDisplayed] = useState(numValue);
+  const prevRef = useRef(numValue);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const from = prevRef.current;
+    const to = numValue;
+    if (from === to) return;
+
+    const start = performance.now();
+    const duration = 400;
+
+    function tick(now: number) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out quad
+      const eased = 1 - (1 - progress) * (1 - progress);
+      const current = from + (to - from) * eased;
+      setDisplayed(current);
+
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        prevRef.current = to;
+      }
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [numValue]);
+
+  const display = isString
+    ? `${Math.round(displayed)}%`
+    : Math.round(displayed);
+
+  return <span style={{ color, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{display}</span>;
+}
 
 export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit, onClearSearch, isFiltering }: {
   stats: FeedStats;
@@ -19,7 +61,7 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
 
   const approvalRate = stats.total > 0 ? Math.round((stats.granted / stats.total) * 100) : 0;
 
-  const statItems = [
+  const statItems: { value: number | string; color: string; label: string }[] = [
     { value: stats.total, color: t.ink, label: "total" },
     { value: stats.granted, color: t.green, label: "approved" },
     { value: stats.denied, color: t.red, label: "denied" },
@@ -92,7 +134,7 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
           />
         </div>
 
-        {/* Stat pills */}
+        {/* Stat pills — animated */}
         <div style={{
           display: "flex", alignItems: "center", gap: mobile ? 8 : 12,
           fontSize: 12, fontWeight: 600, flexWrap: "wrap",
@@ -103,7 +145,7 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
                 width: 7, height: 7, borderRadius: "50%",
                 background: s.color, opacity: 0.8, flexShrink: 0,
               }} />
-              <span style={{ color: s.color, fontWeight: 800 }}>{s.value}</span>
+              <AnimatedNumber value={s.value} color={s.color} />
               {!mobile && <span>{s.label}</span>}
             </span>
           ))}
@@ -127,7 +169,8 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
             style={{
               background: "none", border: "none", color: t.blue,
               cursor: "pointer", fontSize: 14, fontWeight: 700,
-              padding: "0 2px", opacity: 0.7, lineHeight: 1,
+              padding: "8px 10px", opacity: 0.7, lineHeight: 1,
+              minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center",
             }}
             title="Clear filter"
           >{"\u00D7"}</button>

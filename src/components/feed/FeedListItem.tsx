@@ -1,26 +1,54 @@
 "use client";
 
-import { useContext } from "react";
+import { useContext, useState, useEffect } from "react";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { Generation } from "./types";
 import { TIER_META } from "./types";
+import { proxyMedia } from "@/lib/media";
 
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+/** Shared tick — one interval drives all LiveTimeAgo instances */
+let tickListeners = new Set<() => void>();
+let tickInterval: ReturnType<typeof setInterval> | null = null;
+
+function subscribeTick(cb: () => void) {
+  tickListeners.add(cb);
+  if (!tickInterval) {
+    tickInterval = setInterval(() => {
+      tickListeners.forEach((fn) => fn());
+    }, 1000);
+  }
+  return () => {
+    tickListeners.delete(cb);
+    if (tickListeners.size === 0 && tickInterval) {
+      clearInterval(tickInterval);
+      tickInterval = null;
+    }
+  };
 }
 
-export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
+/** Live-ticking time ago — all instances share one 1s interval */
+function LiveTimeAgo({ timestamp }: { timestamp: number }) {
+  const { t } = useContext(ThemeCtx);
+  const [, setTick] = useState(0);
+
+  useEffect(() => subscribeTick(() => setTick((n) => n + 1)), []);
+
+  const diff = Date.now() - timestamp;
+  const secs = Math.floor(diff / 1000);
+  let label: string;
+  if (secs < 60) label = `${secs}s ago`;
+  else if (secs < 3600) label = `${Math.floor(secs / 60)}m ago`;
+  else if (secs < 86400) label = `${Math.floor(secs / 3600)}h ago`;
+  else label = `${Math.floor(secs / 86400)}d ago`;
+
+  return <span style={{ fontSize: 9, color: t.inkMuted }}>{label}</span>;
+}
+
+export function FeedListItem({ entry, isSelected, isNew, onSelect, onOwnerClick }: {
   entry: Generation;
   isSelected: boolean;
+  isNew?: boolean;
   onSelect: () => void;
   onOwnerClick: (address: string) => void;
 }) {
@@ -37,10 +65,11 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
         padding: mobile ? "8px 8px" : "8px 12px",
         cursor: "pointer",
         background: isSelected ? `${t.blue}10` : "transparent",
-        borderLeft: isSelected ? `3px solid ${t.blue}` : "3px solid transparent",
+        borderLeft: isSelected ? `3px solid ${t.blue}` : isNew ? `3px solid ${t.blue}60` : "3px solid transparent",
         borderBottom: `1px solid ${t.cardBorder}30`,
-        transition: "background .15s, border-color .15s",
+        transition: "background .15s, border-color .6s, box-shadow .6s",
         minHeight: 72,
+        animation: isNew ? "feedEntryHighlight 2.5s ease-out" : undefined,
       }}
       onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = `${t.card}80`; }}
       onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
@@ -48,7 +77,7 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
       {/* Thumbnail */}
       {granted && entry.imageUrl ? (
         <img
-          src={entry.imageUrl}
+          src={proxyMedia(entry.imageUrl)}
           alt=""
           style={{
             width: thumbSize, height: thumbSize, borderRadius: 6, objectFit: "cover",
@@ -105,8 +134,8 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
             const tier = TIER_META[entry.tier] || TIER_META[1];
             return (
               <span style={{
-                fontSize: 8, fontWeight: 800, color: tier.color,
-                padding: "1px 4px", borderRadius: 3,
+                fontSize: 9, fontWeight: 800, color: tier.color,
+                padding: "1px 5px", borderRadius: 3,
                 background: `${tier.color}15`, border: `1px solid ${tier.color}30`,
                 letterSpacing: 0.5, textTransform: "uppercase",
               }}>
@@ -115,9 +144,9 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
             );
           })()}
           {entry.tier >= 4 && (
-            <span title="Uses SGX quotes for efficiency" style={{
-              fontSize: 7, fontWeight: 800, color: "#f59e0b",
-              padding: "1px 3px", borderRadius: 3,
+            <span title="TEE-attested verification" style={{
+              fontSize: 9, fontWeight: 800, color: "#f59e0b",
+              padding: "1px 4px", borderRadius: 3,
               background: "#f59e0b15", border: "1px solid #f59e0b30",
               letterSpacing: 0.3, textTransform: "uppercase", cursor: "default",
             }}>
@@ -126,7 +155,7 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
           )}
           {entry.humanVerified && (
             <span style={{
-              fontSize: 8, fontWeight: 700, color: t.green,
+              fontSize: 9, fontWeight: 700, color: t.green,
               padding: "1px 4px", borderRadius: 3,
               background: `${t.green}15`, border: `1px solid ${t.green}30`,
               letterSpacing: 0.3, textTransform: "uppercase",
@@ -141,7 +170,7 @@ export function FeedListItem({ entry, isSelected, onSelect, onOwnerClick }: {
         }}>
           {granted ? "Approved" : "Denied"}
         </span>
-        <span style={{ fontSize: 9, color: t.inkMuted }}>{timeAgo(entry.timestamp)}</span>
+        <LiveTimeAgo timestamp={entry.timestamp} />
       </div>
     </div>
   );
