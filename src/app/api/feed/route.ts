@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getRedis, FEED_KEY, genKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS } from "@/lib/redis";
+import { getRedis, FEED_KEY, genKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS, STATS_TEE } from "@/lib/redis";
 
 export interface FeedEntry {
   id: string;
@@ -11,6 +11,7 @@ export interface FeedEntry {
   humanVerified: boolean;
   tier: number;
   reason: string | null;
+  txHash: string | null;
   timestamp: number;
 }
 
@@ -32,6 +33,7 @@ async function fetchEntries(ids: string[]): Promise<FeedEntry[]> {
       humanVerified: String(r.humanVerified) === "true",
       tier: Number(r.tier) || 0,
       reason: r.reason ? String(r.reason) : null,
+      txHash: r.txHash ? String(r.txHash) : null,
       timestamp: Number(r.timestamp) || 0,
     }));
 }
@@ -133,10 +135,11 @@ export async function GET(request: NextRequest) {
     : null;
 
   // Read global stats from counters
-  const [granted, denied, uniqueAgents] = await Promise.all([
+  const [granted, denied, uniqueAgents, teeVerified] = await Promise.all([
     redis.get(STATS_GRANTED).then(v => Number(v) || 0),
     redis.get(STATS_DENIED).then(v => Number(v) || 0),
     redis.scard(STATS_AGENTS),
+    redis.get(STATS_TEE).then(v => Number(v) || 0),
   ]);
 
   return Response.json({
@@ -147,6 +150,7 @@ export async function GET(request: NextRequest) {
       granted,
       denied,
       uniqueAgents,
+      teeVerified,
     },
   });
 }

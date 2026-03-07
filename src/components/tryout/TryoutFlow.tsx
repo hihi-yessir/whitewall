@@ -4,6 +4,7 @@ import { useContext, useState, useCallback, useEffect, type Dispatch } from "rea
 import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TryoutAction, TryoutState, TerminalEntry, GenerationResult } from "./types";
+import { getPersistedStep, clearPersistedState } from "./types";
 
 // Lazy-loaded IDKit
 let IDKitWidget: any = null;
@@ -57,11 +58,11 @@ const WORLD_ID_ACTION_PREFIX = "verify-owner-";
 
 type FlowStep =
   // Phase 1
-  | "connect" | "register" | "approve" | "verify" | "agent-ready"
+  | "connect" | "register" | "approve" | "verify" | "bootstrapping" | "agent-ready"
   // Phase 2
   | "prompt" | "watching" | "image-done"
   // Phase 3
-  | "kyc" | "credit" | "tier-polling" | "video-prompt" | "video-watching" | "done";
+  | "kyc" | "credit" | "video-prompt" | "video-watching" | "done";
 
 const PHASE1_STEPS = [
   { key: "connect" as const, label: "Connect" },
@@ -79,13 +80,12 @@ const PHASE2_STEPS = [
 const PHASE3_STEPS = [
   { key: "kyc" as const, label: "KYC" },
   { key: "credit" as const, label: "Credit" },
-  { key: "tier-polling" as const, label: "Verify" },
   { key: "video-prompt" as const, label: "Video" },
   { key: "done" as const, label: "Done" },
 ];
 
 function stepPhase(step: FlowStep): 1 | 2 | 3 {
-  if (["connect", "register", "approve", "verify", "agent-ready"].includes(step)) return 1;
+  if (["connect", "register", "approve", "verify", "bootstrapping", "agent-ready"].includes(step)) return 1;
   if (["prompt", "watching", "image-done"].includes(step)) return 2;
   return 3;
 }
@@ -99,7 +99,19 @@ export function TryoutFlow({
 }) {
   const { t } = useContext(ThemeCtx);
   const mobile = useIsMobile();
-  const [step, setStep] = useState<FlowStep>("connect");
+  const [step, setStepRaw] = useState<FlowStep>(() => {
+    const persisted = getPersistedStep();
+    // Map removed steps to their replacements
+    const mapped = persisted === "tier-polling" ? "credit" : persisted;
+    if (mapped && state.agent.id) return mapped as FlowStep;
+    return "connect";
+  });
+  const setStep = useCallback((s: FlowStep) => {
+    setStepRaw(s);
+    (window as any).__wwTryoutStep = s;
+  }, []);
+  // Sync initial step to window for persistence
+  useEffect(() => { (window as any).__wwTryoutStep = step; }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [idkitReady, setIdkitReady] = useState(false);
@@ -111,11 +123,74 @@ export function TryoutFlow({
   const [kycSessionId, setKycSessionId] = useState<string | null>(null);
   const [plaidLinkToken, setPlaidLinkToken] = useState<string | null>(null);
 
+  // Agent wallet balance
+  const [agentBalance, setAgentBalance] = useState<string | null>(null);
+  const [isFunding, setIsFunding] = useState(false);
+
   const { wallet, agent, prompt, isGenerating, generation, videoGeneration, tierData } = state;
 
   const addLog = useCallback((tag: string, message: string, status: TerminalEntry["status"]) => {
     dispatch({ type: "ADD_TERMINAL", entry: { tag, message, status, timestamp: Date.now() } });
   }, [dispatch]);
+
+  // Check agent wallet USDC balance
+  const checkAgentBalance = useCallback(async () => {
+    if (!agent.agentWallet) return;
+    try {
+      const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+      const bal = await publicClient.readContract({
+        address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as `0x${string}`,
+        abi: [{ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" }] as const,
+        functionName: "balanceOf",
+        args: [agent.agentWallet as `0x${string}`],
+      });
+      setAgentBalance((Number(bal) / 1e6).toFixed(2));
+    } catch {
+      // silent
+    }
+  }, [agent.agentWallet]);
+
+  // Fund agent wallet via faucet
+  const fundAgentWallet = useCallback(async () => {
+    if (!agent.agentWallet || !agent.id || !wallet.address) return;
+    setIsFunding(true);
+    setError(null);
+    addLog("FAUCET", "Requesting USDC top-up for agent wallet...", "info");
+    try {
+      const res = await fetch("/api/faucet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: wallet.address,
+          agentId: agent.id.toString(),
+          agentWallet: agent.agentWallet,
+        }),
+      });
+      const data = await res.json();
+      if (data.skipped && data.balance) {
+        setAgentBalance(parseFloat(data.balance).toFixed(2));
+        addLog("FAUCET", `Agent already has ${data.balance} USDC`, "pass");
+      } else if (data.success) {
+        addLog("FAUCET", `${data.amount} USDC funded (tx: ${data.txHash?.slice(0, 10)}...)`, "pass");
+        await checkAgentBalance();
+      } else if (data.error) {
+        addLog("FAUCET", data.error, "warn");
+        setError(data.error);
+      }
+    } catch (err: any) {
+      addLog("FAUCET", err.message || "Funding failed", "fail");
+      setError(err.message || "Funding failed");
+    } finally {
+      setIsFunding(false);
+    }
+  }, [agent.agentWallet, agent.id, wallet.address, addLog, checkAgentBalance]);
+
+  // Auto-check balance when entering prompt, video-prompt, or agent-ready steps
+  useEffect(() => {
+    if ((step === "prompt" || step === "video-prompt" || step === "agent-ready") && agent.agentWallet) {
+      checkAgentBalance();
+    }
+  }, [step, agent.agentWallet, checkAgentBalance]);
 
   /* ═══════════════════════════════════════════════════════
      Phase 1: Owner Setup (same as TryItFlow)
@@ -295,7 +370,7 @@ export function TryoutFlow({
         addLog("WORLD ID", "Human verification tag set on-chain!", "pass");
 
         // Auto: Create agent wallet + fund with USDC
-        // Retry with delay — the server-side RPC may lag behind the browser's RPC
+        setStep("bootstrapping");
         addLog("AGENT", "Creating autonomous agent wallet...", "info");
         try {
           let walletResp: Response | null = null;
@@ -409,7 +484,7 @@ export function TryoutFlow({
               } else {
                 dispatch({ type: "SET_GENERATION", generation: gen });
               }
-              dispatch({ type: "SET_RESULT", result: { granted: true, accountableHuman: data.ownerAddress, tier: genType === "video" ? 3 : 2 } });
+              dispatch({ type: "SET_RESULT", result: { granted: true, accountableHuman: data.ownerAddress, tier: data.tier ?? tierData.effectiveTier } });
             } else {
               dispatch({ type: "SET_RESULT", result: { granted: false, reason: data.reason || "Generation failed" } });
             }
@@ -423,7 +498,9 @@ export function TryoutFlow({
     dispatch({ type: "SET_RUNNING", isRunning: false });
     dispatch({ type: "SET_GENERATING", isGenerating: false });
     setStep(genType === "video" ? "done" : "image-done");
-  }, [prompt, wallet.address, agent.id, dispatch, addLog]);
+    // Refresh balance after generation (USDC was spent)
+    checkAgentBalance();
+  }, [prompt, wallet.address, agent.id, dispatch, addLog, checkAgentBalance]);
 
   /* ═══════════════════════════════════════════════════════
      Phase 3: KYC + Credit + Video
@@ -584,9 +661,17 @@ export function TryoutFlow({
     }
   }, [state.creditStatus, dispatch]);
 
-  // Tier polling (Phase 3)
+  // Tier polling — runs during KYC done, credit done, and late-phase steps
+  const shouldPoll = agent.id && (
+    (step === "kyc" && state.kycStatus === "done") ||
+    (step === "credit" && state.creditStatus === "done") ||
+    step === "video-prompt" ||
+    step === "video-watching" ||
+    step === "done"
+  );
+
   useEffect(() => {
-    if (step !== "tier-polling" || !agent.id) return;
+    if (!shouldPoll || !agent.id) return;
     let cancelled = false;
 
     const poll = async () => {
@@ -607,10 +692,11 @@ export function TryoutFlow({
             effectiveTier: chain.effectiveTier,
             kycData: chain.kycData,
             creditData: chain.creditData,
+            creditTxHash: chain.creditTxHash,
           },
         });
 
-        if (chain.effectiveTier >= 3 && !cancelled) {
+        if (step === "credit" && state.creditStatus === "done" && chain.effectiveTier >= 3 && !cancelled) {
           addLog("TIER", `Tier ${chain.effectiveTier} achieved!`, "pass");
           setStep("video-prompt");
         }
@@ -622,7 +708,7 @@ export function TryoutFlow({
     poll();
     const interval = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [step, agent.id, dispatch, addLog]);
+  }, [shouldPoll, step, agent.id, state.creditStatus, dispatch, addLog, setStep]);
 
   /* ═══════════════════════════════════════════════════════
      Phase transitions
@@ -642,6 +728,7 @@ export function TryoutFlow({
   }, [dispatch]);
 
   const handleStartOver = useCallback(() => {
+    clearPersistedState();
     setStep("connect");
     setError(null);
     setIdentityRegistry(null);
@@ -650,7 +737,7 @@ export function TryoutFlow({
     setKycSessionId(null);
     setPlaidLinkToken(null);
     dispatch({ type: "RESET_ALL" });
-  }, [dispatch]);
+  }, [dispatch, setStep]);
 
   /* ═══════════════════════════════════════════════════════
      Render helpers
@@ -659,7 +746,10 @@ export function TryoutFlow({
   const currentPhase = stepPhase(step);
 
   const renderProgressBar = (steps: { key: string; label: string }[], currentKey: string, completed: boolean, label: string, phaseNum: number) => {
-    const idx = steps.findIndex((s) => s.key === currentKey);
+    const rawIdx = steps.findIndex((s) => s.key === currentKey);
+    // If current step isn't in this phase's steps (e.g. "agent-ready" not in PHASE1_STEPS),
+    // treat all steps as done if we're in this phase, otherwise show none active
+    const idx = rawIdx === -1 ? (currentPhase === phaseNum ? steps.length : -1) : rawIdx;
     return (
       <div style={{ marginBottom: 8 }}>
         <span style={{
@@ -698,7 +788,29 @@ export function TryoutFlow({
     <div style={{
       padding: mobile ? "16px" : "24px 20px",
       display: "flex", flexDirection: "column", gap: 12,
+      position: "relative",
     }}>
+      {/* Start Over icon */}
+      {wallet.connected && step !== "connect" && (
+        <button
+          onClick={handleStartOver}
+          title="Start Over"
+          style={{
+            position: "absolute", top: mobile ? 12 : 20, right: mobile ? 12 : 16,
+            width: 28, height: 28, borderRadius: 6,
+            border: `1px solid ${t.cardBorder}40`, background: `${t.card}80`,
+            color: t.inkMuted, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, lineHeight: 1,
+            transition: "all .2s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = `${t.red}15`; e.currentTarget.style.color = t.red; e.currentTarget.style.borderColor = `${t.red}40`; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = `${t.card}80`; e.currentTarget.style.color = t.inkMuted; e.currentTarget.style.borderColor = `${t.cardBorder}40`; }}
+        >
+          {"\u21BA"}
+        </button>
+      )}
+
       {/* Plaid Link auto-opener */}
       {state.creditStatus === "linking" && plaidLinkToken && (
         <PlaidLinkButton token={plaidLinkToken} onSuccess={handlePlaidSuccess} onExit={handlePlaidExit} />
@@ -799,6 +911,57 @@ export function TryoutFlow({
         )}
 
         {/* ═══ Phase 1 Complete → Agent Ready ═══ */}
+        {step === "bootstrapping" && (
+          <div>
+            <div style={{
+              fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+              color: t.blue, marginBottom: 10,
+            }}>
+              Setting Up Agent
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
+              Bootstrapping Agent #{agent.id?.toString()}
+            </div>
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 8,
+              fontSize: 12, color: t.inkMuted, lineHeight: 1.5,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: t.green }}>{"\u2713"}</span>
+                <span>World ID verified</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {agent.agentWallet ? (
+                  <span style={{ color: t.green }}>{"\u2713"}</span>
+                ) : (
+                  <span style={{
+                    display: "inline-block", width: 12, height: 12,
+                    border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
+                    borderRadius: "50%", animation: "wwSpin 1s linear infinite",
+                  }} />
+                )}
+                <span>{agent.agentWallet ? "Agent wallet created" : "Creating agent wallet..."}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {agent.agentFunded ? (
+                  <span style={{ color: t.green }}>{"\u2713"}</span>
+                ) : agent.agentWallet ? (
+                  <span style={{
+                    display: "inline-block", width: 12, height: 12,
+                    border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
+                    borderRadius: "50%", animation: "wwSpin 1s linear infinite",
+                  }} />
+                ) : (
+                  <span style={{ color: `${t.cardBorder}60` }}>{"\u2022"}</span>
+                )}
+                <span style={{ color: agent.agentWallet ? t.inkMuted : `${t.cardBorder}60` }}>
+                  {agent.agentFunded ? "Funded with 1 USDC" : agent.agentWallet ? "Funding with USDC..." : "Fund agent wallet"}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {step === "agent-ready" && (
           <div>
             <div style={{
@@ -823,7 +986,7 @@ export function TryoutFlow({
                 <div>agentWallet: <span style={{ color: t.ink }}>{agent.agentWallet.slice(0, 10)}...</span></div>
               )}
               <div>balance: <span style={{ color: agent.agentFunded ? t.green : t.red }}>
-                {agent.agentFunded ? "1.00 USDC" : "0 USDC"}
+                {agentBalance !== null ? `${agentBalance} USDC` : agent.agentFunded ? "1.00 USDC" : "0 USDC"}
               </span></div>
             </div>
             <Btn primary small onClick={enterPhase2}>
@@ -833,32 +996,79 @@ export function TryoutFlow({
         )}
 
         {/* ═══ Phase 2: Prompt ═══ */}
-        {step === "prompt" && (
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Send Task to Agent</div>
-            <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
-              Your agent will autonomously pay via x402 and generate an image.
-              No MetaMask popups {"\u2014"} the agent signs with its own key.
+        {step === "prompt" && (() => {
+          const bal = agentBalance !== null ? parseFloat(agentBalance) : null;
+          const insufficient = bal !== null && bal < 0.01;
+          return (
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Send Task to Agent</div>
+              <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
+                Your agent will autonomously pay via x402 and generate an image.
+                No MetaMask popups {"\u2014"} the agent signs with its own key.
+              </div>
+
+              {/* Agent balance indicator */}
+              {agent.agentWallet && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px", borderRadius: 8, marginBottom: 12,
+                  background: insufficient ? `${t.red}08` : `${t.codeBg}CC`,
+                  border: `1px solid ${insufficient ? `${t.red}30` : `${t.cardBorder}30`}`,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase",
+                      color: insufficient ? t.red : t.inkMuted, marginBottom: 2,
+                    }}>
+                      Agent Balance
+                    </div>
+                    <div style={{
+                      fontSize: 14, fontWeight: 700,
+                      fontFamily: "'SF Mono','Fira Code',monospace",
+                      color: insufficient ? t.red : bal !== null && bal > 0 ? t.green : t.inkMuted,
+                    }}>
+                      {bal !== null ? `${agentBalance} USDC` : "Checking..."}
+                    </div>
+                  </div>
+                  {insufficient && (
+                    <button
+                      onClick={fundAgentWallet}
+                      disabled={isFunding}
+                      style={{
+                        padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                        border: `1.5px solid ${t.blue}`, background: `${t.blue}15`, color: t.blue,
+                        cursor: isFunding ? "not-allowed" : "pointer", opacity: isFunding ? 0.6 : 1,
+                        transition: "all .2s",
+                      }}
+                    >
+                      {isFunding ? "Funding..." : "Top Up"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating && !insufficient) handleSendToAgent("image"); }}
+                placeholder="Describe an image..."
+                disabled={isGenerating || insufficient}
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
+                  border: `1.5px solid ${insufficient ? `${t.red}40` : t.cardBorder}`,
+                  background: `${t.bg}CC`, color: t.ink,
+                  outline: "none", fontFamily: "inherit", marginBottom: 12,
+                  boxSizing: "border-box",
+                  opacity: insufficient ? 0.5 : 1,
+                }}
+              />
+              <Btn primary small onClick={() => handleSendToAgent("image")} disabled={isGenerating || !prompt.trim() || insufficient}>
+                {insufficient ? "Fund agent to continue" : "Send to Agent"}
+              </Btn>
             </div>
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
-              onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating) handleSendToAgent("image"); }}
-              placeholder="Describe an image..."
-              disabled={isGenerating}
-              style={{
-                width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
-                border: `1.5px solid ${t.cardBorder}`, background: `${t.bg}CC`, color: t.ink,
-                outline: "none", fontFamily: "inherit", marginBottom: 12,
-                boxSizing: "border-box",
-              }}
-            />
-            <Btn primary small onClick={() => handleSendToAgent("image")} disabled={isGenerating || !prompt.trim()}>
-              Send to Agent
-            </Btn>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ═══ Phase 2: Watching ═══ */}
         {step === "watching" && (
@@ -937,7 +1147,7 @@ export function TryoutFlow({
                       <span style={{
                         display: "inline-block", width: 12, height: 12,
                         border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
-                        borderRadius: "50%", animation: "demoPulse 1s linear infinite",
+                        borderRadius: "50%", animation: "wwSpin 1s linear infinite",
                       }} />
                       ValidateRequest sent — awaiting validator
                     </>
@@ -949,8 +1159,8 @@ export function TryoutFlow({
                     : "WorldIDValidator is processing the async validation request..."
                   }
                 </div>
-                <Btn primary small onClick={() => setStep("credit")}>
-                  Next: Credit Score {"\u2192"}
+                <Btn primary small onClick={() => setStep("credit")} disabled={!tierData.kycVerified}>
+                  {tierData.kycVerified ? "Next: Credit Score" : "Waiting for on-chain confirmation..."}
                 </Btn>
               </div>
             )}
@@ -982,155 +1192,212 @@ export function TryoutFlow({
             {state.creditStatus === "creating" && <Btn primary small disabled>Creating link...</Btn>}
             {state.creditStatus === "linking" && <Btn primary small disabled>Plaid Link open...</Btn>}
             {state.creditStatus === "submitting" && <Btn primary small disabled>Confirm in wallet...</Btn>}
-            {state.creditStatus === "done" && (
-              <div>
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  fontSize: 12, fontWeight: 700, marginBottom: 4,
-                  color: tierData.hasCreditScore ? t.green : t.blue,
-                }}>
-                  {tierData.hasCreditScore ? (
-                    <>{"\u2713"} Credit score written on-chain</>
-                  ) : (
-                    <>
-                      <span style={{
-                        display: "inline-block", width: 12, height: 12,
-                        border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
-                        borderRadius: "50%", animation: "demoPulse 1s linear infinite",
-                      }} />
-                      ValidateRequest sent — awaiting validator
-                    </>
+            {state.creditStatus === "done" && (() => {
+              const validators = [
+                { label: "KYC Validator", done: tierData.kycVerified, desc: "Stripe Identity" },
+                { label: "Credit Validator", done: tierData.hasCreditScore, desc: "Plaid via TEE" },
+              ];
+              const tierReady = tierData.effectiveTier >= 3;
+              return (
+                <div>
+                  {/* Credit status line */}
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    fontSize: 12, fontWeight: 700, marginBottom: 4,
+                    color: tierData.hasCreditScore ? t.green : t.blue,
+                  }}>
+                    {tierData.hasCreditScore ? (
+                      <>{"\u2713"} Credit score written on-chain</>
+                    ) : (
+                      <>
+                        <span style={{
+                          display: "inline-block", width: 12, height: 12,
+                          border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
+                          borderRadius: "50%", animation: "wwSpin 1s linear infinite",
+                        }} />
+                        ValidateRequest sent — awaiting validator
+                      </>
+                    )}
+                  </div>
+                  {tierData.hasCreditScore && (
+                    <div style={{ fontSize: 11, color: t.inkMuted, marginBottom: 10, lineHeight: 1.4 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span>Score <strong style={{ color: t.blue }}>{tierData.creditData?.score ?? tierData.creditScore}</strong> verified via TEE</span>
+                        {tierData.creditData?.dataHash && (
+                          <span style={{
+                            fontSize: 9, fontFamily: "'SF Mono','Fira Code',monospace",
+                            opacity: 0.7,
+                          }}>
+                            dataHash: {tierData.creditData.dataHash.slice(0, 14)}...
+                          </span>
+                        )}
+                        {tierData.creditTxHash && (
+                          <a
+                            href={`https://sepolia.basescan.org/tx/${tierData.creditTxHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="View TEE-attested credit score transaction with SGX quotes"
+                            style={{
+                              fontSize: 9, fontFamily: "'SF Mono','Fira Code',monospace",
+                              color: t.blue, textDecoration: "none",
+                            }}
+                          >
+                            TEE tx: {tierData.creditTxHash.slice(0, 10)}...{tierData.creditTxHash.slice(-6)}
+                          </a>
+                        )}
+                      </div>
+                    </div>
                   )}
+
+                  {/* Inline validator checklist */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                    {validators.map((v) => (
+                      <div key={v.label} style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "6px 10px", borderRadius: 8,
+                        background: v.done ? `${t.green}08` : `${t.codeBg}CC`,
+                        border: `1px solid ${v.done ? `${t.green}20` : `${t.cardBorder}30`}`,
+                        transition: "all .4s",
+                      }}>
+                        {v.done ? (
+                          <span style={{ color: t.green, fontWeight: 800, fontSize: 13 }}>{"\u2713"}</span>
+                        ) : (
+                          <span style={{
+                            display: "inline-block", width: 13, height: 13,
+                            border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
+                            borderRadius: "50%", animation: "wwSpin 1s linear infinite",
+                            flexShrink: 0,
+                          }} />
+                        )}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: v.done ? t.green : t.ink }}>
+                            {v.label}
+                            {v.done && <span style={{ fontWeight: 400, color: t.inkMuted, marginLeft: 6 }}>{"\u2014"} confirmed</span>}
+                          </div>
+                          {!v.done && (
+                            <div style={{ fontSize: 10, color: t.inkMuted }}>{v.desc} — pending...</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Tier + CTA */}
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 10px", borderRadius: 8, marginBottom: 12,
+                    background: `${t.codeBg}CC`, border: `1px solid ${t.cardBorder}30`,
+                  }}>
+                    <span style={{
+                      fontSize: 18, fontWeight: 900,
+                      fontFamily: "'SF Mono','Fira Code',monospace",
+                      color: tierReady ? t.green : t.blue,
+                    }}>
+                      T{tierData.effectiveTier}
+                    </span>
+                    <div style={{ flex: 1, fontSize: 11, color: t.inkMuted }}>
+                      {tierReady
+                        ? <span style={{ color: t.green, fontWeight: 700 }}>Tier upgrade complete</span>
+                        : <>Target: <span style={{ fontWeight: 700, color: t.ink }}>T3+</span> to unlock video</>
+                      }
+                    </div>
+                  </div>
+                  <Btn primary small disabled={!tierReady} onClick={() => {
+                    addLog("TIER", `Tier ${tierData.effectiveTier} achieved!`, "pass");
+                    setStep("video-prompt");
+                  }}>
+                    {tierReady ? "Generate Video" : "Waiting for validators..."}
+                  </Btn>
                 </div>
-                <div style={{ fontSize: 11, color: t.inkMuted, marginBottom: 10, lineHeight: 1.4 }}>
-                  {tierData.hasCreditScore
-                    ? "Credit data written to ValidationRegistry."
-                    : "CRE DON is processing the credit validation report..."
-                  }
-                </div>
-                <Btn primary small onClick={() => {
-                  addLog("TIER", "Polling on-chain status for tier upgrade...", "info");
-                  setStep("tier-polling");
-                }}>
-                  Wait for Tier Upgrade {"\u2192"}
-                </Btn>
-              </div>
-            )}
+              );
+            })()}
             {state.creditStatus === "error" && (
               <Btn primary small onClick={startCredit}>Retry</Btn>
             )}
           </div>
         )}
 
-        {/* ═══ Phase 3: Tier Polling ═══ */}
-        {step === "tier-polling" && (() => {
-          const validators = [
-            { label: "KYC Validator", done: tierData.kycVerified, desc: "Stripe Identity" },
-            { label: "Credit Validator", done: tierData.hasCreditScore, desc: "Plaid" },
-          ];
-          const allDone = validators.every((v) => v.done);
+        {/* tier-polling removed — folded into credit done state */}
+
+        {/* ═══ Phase 3: Video Prompt ═══ */}
+        {step === "video-prompt" && (() => {
+          const bal = agentBalance !== null ? parseFloat(agentBalance) : null;
+          const insufficient = bal !== null && bal < 0.01;
           return (
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                On-Chain Verification
+              <div style={{
+                fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+                color: t.green, marginBottom: 10,
+              }}>
+                Tier {tierData.effectiveTier} Achieved
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Generate a Video</div>
+              <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
+                With T3+ clearance, your agent can now generate videos.
               </div>
 
-              {/* Validator status rows */}
-              <div style={{
-                display: "flex", flexDirection: "column", gap: 6, marginBottom: 12,
-              }}>
-                {validators.map((v) => (
-                  <div key={v.label} style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "6px 10px", borderRadius: 8,
-                    background: v.done ? `${t.green}08` : `${t.codeBg}CC`,
-                    border: `1px solid ${v.done ? `${t.green}20` : `${t.cardBorder}30`}`,
-                    transition: "all .4s",
-                  }}>
-                    {v.done ? (
-                      <span style={{ color: t.green, fontWeight: 800, fontSize: 13 }}>{"\u2713"}</span>
-                    ) : (
-                      <span style={{
-                        display: "inline-block", width: 13, height: 13,
-                        border: `2px solid ${t.blue}30`, borderTopColor: t.blue,
-                        borderRadius: "50%", animation: "demoPulse 1s linear infinite",
-                        flexShrink: 0,
-                      }} />
-                    )}
-                    <div style={{ flex: 1 }}>
-                      <div style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: v.done ? t.green : t.ink,
-                      }}>
-                        {v.label}
-                        {v.done && <span style={{ fontWeight: 400, color: t.inkMuted, marginLeft: 6 }}>{"\u2014"} written to ValidationRegistry</span>}
-                      </div>
-                      {!v.done && (
-                        <div style={{ fontSize: 10, color: t.inkMuted }}>
-                          {v.desc} {"\u2192"} async ValidateRequest pending...
-                        </div>
-                      )}
+              {/* Agent balance indicator */}
+              {agent.agentWallet && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px", borderRadius: 8, marginBottom: 12,
+                  background: insufficient ? `${t.red}08` : `${t.codeBg}CC`,
+                  border: `1px solid ${insufficient ? `${t.red}30` : `${t.cardBorder}30`}`,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase",
+                      color: insufficient ? t.red : t.inkMuted, marginBottom: 2,
+                    }}>
+                      Agent Balance
+                    </div>
+                    <div style={{
+                      fontSize: 14, fontWeight: 700,
+                      fontFamily: "'SF Mono','Fira Code',monospace",
+                      color: insufficient ? t.red : bal !== null && bal > 0 ? t.green : t.inkMuted,
+                    }}>
+                      {bal !== null ? `${agentBalance} USDC` : "Checking..."}
                     </div>
                   </div>
-                ))}
-              </div>
-
-              {/* Tier status */}
-              <div style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "8px 10px", borderRadius: 8,
-                background: `${t.codeBg}CC`, border: `1px solid ${t.cardBorder}30`,
-              }}>
-                <span style={{
-                  fontSize: 18, fontWeight: 900,
-                  fontFamily: "'SF Mono','Fira Code',monospace",
-                  color: allDone ? t.green : t.blue,
-                }}>
-                  T{tierData.effectiveTier}
-                </span>
-                <div style={{ flex: 1, fontSize: 11, color: t.inkMuted }}>
-                  {allDone
-                    ? <span style={{ color: t.green, fontWeight: 700 }}>All validators confirmed — tier upgrade complete</span>
-                    : <>Target: <span style={{ fontWeight: 700, color: t.ink }}>T3+</span> to unlock video generation</>
-                  }
+                  {insufficient && (
+                    <button
+                      onClick={fundAgentWallet}
+                      disabled={isFunding}
+                      style={{
+                        padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                        border: `1.5px solid ${t.blue}`, background: `${t.blue}15`, color: t.blue,
+                        cursor: isFunding ? "not-allowed" : "pointer", opacity: isFunding ? 0.6 : 1,
+                        transition: "all .2s",
+                      }}
+                    >
+                      {isFunding ? "Funding..." : "Top Up"}
+                    </button>
+                  )}
                 </div>
-              </div>
+              )}
+
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating && !insufficient) handleSendToAgent("video"); }}
+                placeholder="Describe a video..."
+                disabled={isGenerating || insufficient}
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
+                  border: `1.5px solid ${insufficient ? `${t.red}40` : t.cardBorder}`,
+                  background: `${t.bg}CC`, color: t.ink,
+                  outline: "none", fontFamily: "inherit", marginBottom: 12,
+                  boxSizing: "border-box",
+                  opacity: insufficient ? 0.5 : 1,
+                }}
+              />
+              <Btn primary small onClick={() => handleSendToAgent("video")} disabled={isGenerating || !prompt.trim() || insufficient}>
+                {insufficient ? "Fund agent to continue" : "Generate Video"}
+              </Btn>
             </div>
           );
         })()}
-
-        {/* ═══ Phase 3: Video Prompt ═══ */}
-        {step === "video-prompt" && (
-          <div>
-            <div style={{
-              fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
-              color: t.green, marginBottom: 10,
-            }}>
-              Tier {tierData.effectiveTier} Achieved
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Generate a Video</div>
-            <div style={{ fontSize: 12, color: t.inkMuted, marginBottom: 12, lineHeight: 1.5 }}>
-              With T3+ clearance, your agent can now generate videos.
-            </div>
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => dispatch({ type: "SET_PROMPT", prompt: e.target.value })}
-              onKeyDown={(e) => { if (e.key === "Enter" && prompt.trim() && !isGenerating) handleSendToAgent("video"); }}
-              placeholder="Describe a video..."
-              disabled={isGenerating}
-              style={{
-                width: "100%", padding: "10px 12px", borderRadius: 8, fontSize: 13,
-                border: `1.5px solid ${t.cardBorder}`, background: `${t.bg}CC`, color: t.ink,
-                outline: "none", fontFamily: "inherit", marginBottom: 12,
-                boxSizing: "border-box",
-              }}
-            />
-            <Btn primary small onClick={() => handleSendToAgent("video")} disabled={isGenerating || !prompt.trim()}>
-              Generate Video
-            </Btn>
-          </div>
-        )}
 
         {/* ═══ Phase 3: Video Watching ═══ */}
         {step === "video-watching" && (
@@ -1180,7 +1447,7 @@ export function TryoutFlow({
       </div>
 
       {/* Agent status summary (Phase 1 only) */}
-      {wallet.connected && currentPhase === 1 && step !== "agent-ready" && (
+      {wallet.connected && currentPhase === 1 && step !== "agent-ready" && step !== "bootstrapping" && (
         <div style={{
           padding: "12px 16px", borderRadius: 8,
           background: `${t.card}80`, border: `1px solid ${t.cardBorder}40`,

@@ -4,6 +4,7 @@ import { useContext, useEffect, useState } from "react";
 import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { Generation } from "./types";
+import { TIER_META } from "./types";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -178,8 +179,51 @@ export function FeedDetail({ entry, onClose, onOwnerClick }: {
               value: entry.humanVerified ? "Yes (Human)" : "No",
               color: entry.humanVerified ? t.green : t.inkMuted,
             },
-            { label: "Tier", value: String(entry.tier) },
+            {
+              label: "Tier",
+              value: (() => {
+                const tier = TIER_META[entry.tier] || TIER_META[1];
+                return (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, color: tier.color,
+                      padding: "1px 6px", borderRadius: 3,
+                      background: `${tier.color}15`, border: `1px solid ${tier.color}30`,
+                      letterSpacing: 0.5,
+                    }}>
+                      {tier.label}
+                    </span>
+                    {entry.tier >= 4 && (
+                      <span title="Uses SGX quotes for efficiency" style={{
+                        fontSize: 8, fontWeight: 800, color: "#f59e0b",
+                        padding: "1px 4px", borderRadius: 3,
+                        background: "#f59e0b15", border: "1px solid #f59e0b30",
+                        letterSpacing: 0.3, textTransform: "uppercase" as const, cursor: "default",
+                      }}>
+                        TEE Verified
+                      </span>
+                    )}
+                  </span>
+                );
+              })(),
+            },
             { label: "Time", value: `${formatTimestamp(entry.timestamp)} (${timeAgo(entry.timestamp)})` },
+            ...(entry.txHash ? [{
+              label: "Tx",
+              value: (
+                <a
+                  href={`https://sepolia.basescan.org/tx/${entry.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontFamily: "'SF Mono','Fira Code',monospace", fontSize: 11,
+                    color: t.blue, textDecoration: "none",
+                  }}
+                >
+                  {entry.txHash.slice(0, 10)}...{entry.txHash.slice(-6)}
+                </a>
+              ),
+            }] : []),
             ...(!granted && entry.reason ? [{ label: "Reason", value: entry.reason, color: t.red }] : []),
           ].map((row) => (
             <div key={row.label} style={{

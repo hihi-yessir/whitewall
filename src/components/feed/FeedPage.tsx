@@ -14,7 +14,7 @@ export default function FeedPage() {
   const mobile = useIsMobile();
 
   const [entries, setEntries] = useState<Generation[]>([]);
-  const [stats, setStats] = useState<FeedStats>({ total: 0, granted: 0, denied: 0, uniqueAgents: 0 });
+  const [stats, setStats] = useState<FeedStats>({ total: 0, granted: 0, denied: 0, uniqueAgents: 0, teeVerified: 0 });
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -90,6 +90,7 @@ export default function FeedPage() {
               granted: s.granted + (entry.status === "granted" ? 1 : 0),
               denied: s.denied + (entry.status === "denied" ? 1 : 0),
               uniqueAgents: s.uniqueAgents,
+              teeVerified: s.teeVerified + (entry.tier >= 4 ? 1 : 0),
             }));
             return [entry, ...prev];
           });
@@ -268,6 +269,10 @@ export default function FeedPage() {
         )}
 
         <style>{`
+          @keyframes demoPulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.1); }
+          }
           @keyframes resultAppear {
             from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: none; }

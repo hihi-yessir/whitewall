@@ -46,7 +46,7 @@ function faucetKey(address: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { address, agentId } = await req.json();
+    const { address, agentId, agentWallet } = await req.json();
 
     if (!address || !isAddress(address)) {
       return NextResponse.json({ error: "Invalid address" }, { status: 400 });
@@ -54,6 +54,8 @@ export async function POST(req: NextRequest) {
     if (!agentId) {
       return NextResponse.json({ error: "Missing agentId" }, { status: 400 });
     }
+    // If agentWallet is provided, fund that address instead (owner still verified via `address`)
+    const targetAddress = agentWallet && isAddress(agentWallet) ? agentWallet : address;
 
     const pk = process.env.FAUCET_PRIVATE_KEY;
     if (!pk) {
@@ -87,24 +89,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Address is not the agent owner" }, { status: 403 });
     }
 
-    // Rate limit: 1 per address per day
+    // Rate limit: 1 per target address per day
     const redis = getRedis();
-    const existing = await redis.get(faucetKey(address));
+    const existing = await redis.get(faucetKey(targetAddress));
     if (existing) {
       return NextResponse.json({ error: "Already funded today", skipped: true }, { status: 200 });
     }
 
-    // Check if user already has USDC
+    // Check if target already has USDC
     const balance = await publicClient.readContract({
       address: USDC_ADDRESS,
       abi: erc20Abi,
       functionName: "balanceOf",
-      args: [address as `0x${string}`],
+      args: [targetAddress as `0x${string}`],
     });
 
     if (balance >= FAUCET_AMOUNT) {
       // Already has enough, mark as funded and skip
-      await redis.set(faucetKey(address), "funded", { ex: FAUCET_COOLDOWN });
+      await redis.set(faucetKey(targetAddress), "funded", { ex: FAUCET_COOLDOWN });
       return NextResponse.json({
         skipped: true,
         balance: formatUnits(balance, 6),
@@ -124,18 +126,19 @@ export async function POST(req: NextRequest) {
       address: USDC_ADDRESS,
       abi: erc20Abi,
       functionName: "transfer",
-      args: [address as `0x${string}`, FAUCET_AMOUNT],
+      args: [targetAddress as `0x${string}`, FAUCET_AMOUNT],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
     // Mark as funded
-    await redis.set(faucetKey(address), hash, { ex: FAUCET_COOLDOWN });
+    await redis.set(faucetKey(targetAddress), hash, { ex: FAUCET_COOLDOWN });
 
     return NextResponse.json({
       success: true,
       txHash: hash,
       amount: formatUnits(FAUCET_AMOUNT, 6),
+      balance: formatUnits(balance + FAUCET_AMOUNT, 6),
       status: receipt.status,
     });
   } catch (err: unknown) {

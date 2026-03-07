@@ -3,6 +3,7 @@
 import { useContext, useState } from "react";
 import { ThemeCtx } from "../shared/theme";
 import type { Generation } from "./types";
+import { TIER_META } from "./types";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -64,6 +65,29 @@ export function GenerationCard({ entry, onOwnerClick }: { entry: Generation; onO
             }}>
               #{entry.agentId}
             </span>
+            {(() => {
+              const tier = TIER_META[entry.tier] || TIER_META[1];
+              return (
+                <span style={{
+                  fontSize: 8, fontWeight: 800, color: tier.color,
+                  padding: "1px 4px", borderRadius: 3,
+                  background: `${tier.color}15`, border: `1px solid ${tier.color}30`,
+                  letterSpacing: 0.5, textTransform: "uppercase",
+                }}>
+                  {tier.label}
+                </span>
+              );
+            })()}
+            {entry.tier >= 4 && (
+              <span title="Uses SGX quotes for efficiency" style={{
+                fontSize: 7, fontWeight: 800, color: "#f59e0b",
+                padding: "1px 3px", borderRadius: 3,
+                background: "#f59e0b15", border: "1px solid #f59e0b30",
+                letterSpacing: 0.3, textTransform: "uppercase", cursor: "default",
+              }}>
+                TEE
+              </span>
+            )}
             {entry.humanVerified && (
               <span style={{
                 fontSize: 9, fontWeight: 700, color: t.green,

@@ -104,6 +104,34 @@ export async function GET(request: NextRequest) {
     if (registered && humanOk && kycOk) effectiveTier = 3;
     if (registered && humanOk && kycOk && creditOk && score >= 50) effectiveTier = 4;
 
+    // If credit score exists, find the CreditScoreSet event tx hash
+    let creditTxHash: string | null = null;
+    if (creditOk) {
+      try {
+        const logs = await client.getLogs({
+          address: addr.plaidCreditValidator as `0x${string}`,
+          event: {
+            type: "event",
+            name: "CreditScoreSet",
+            inputs: [
+              { indexed: true, name: "agentId", type: "uint256" },
+              { indexed: false, name: "score", type: "uint8" },
+              { indexed: false, name: "dataHash", type: "bytes32" },
+              { indexed: false, name: "timestamp", type: "uint256" },
+            ],
+          },
+          args: { agentId: id },
+          fromBlock: "earliest",
+          toBlock: "latest",
+        });
+        if (logs.length > 0) {
+          creditTxHash = logs[logs.length - 1].transactionHash;
+        }
+      } catch {
+        // Non-critical — just won't show tx link
+      }
+    }
+
     return NextResponse.json({
       agentId,
       onChain: {
@@ -124,6 +152,7 @@ export async function GET(request: NextRequest) {
           verifiedAt: Number((creditData.value as [number, string, bigint, boolean])[2]),
           hasScore: (creditData.value as [number, string, bigint, boolean])[3],
         } : null,
+        creditTxHash,
         effectiveTier,
       },
     });
