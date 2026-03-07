@@ -21,3 +21,7 @@ export const STATS_DENIED = "feed:stats:denied";
 export const STATS_AGENTS = "feed:stats:agents";  // set of unique agentIds
 export const ownerFeedKey = (address: string) => `feed:owner:${address.toLowerCase()}`;
 export const STATS_TEE = "feed:stats:tee";
+
+// Activity timeline
+export const ACTIVITY_KEY = "feed:activity";
+export const activityKey = (id: string) => `activity:${id}`;

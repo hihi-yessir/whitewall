@@ -68,8 +68,8 @@ function PipelineSection() {
   const steps = [
     { step: "G1", title: "Identity", desc: "EVMClient.read \u2192 IdentityRegistry. Is this agent registered with an ERC-8004 NFT?" },
     { step: "G2", title: "Verification", desc: "EVMClient.read \u2192 WorldIDValidator. Is the owner human-verified via World ID ZK proof?" },
-    { step: "G3", title: "KYC", desc: "EVMClient.read \u2192 StripeKYCValidator via Confidential HTTP. Has the owner completed KYC?" },
-    { step: "G4", title: "Credit", desc: "EVMClient.read \u2192 PlaidCreditValidator via Confidential HTTP. Does the owner meet the minimum credit score?" },
+    { step: "G3", title: "KYC (TEE)", desc: "Confidential HTTP \u2192 Stripe Identity inside TEE enclave. KYC credentials never leave the enclave." },
+    { step: "G4", title: "Credit (TEE)", desc: "Confidential HTTP \u2192 Plaid inside TEE. Returns attested credit score, verified on-chain." },
     { step: "DON", title: "Consensus", desc: "3/5 DON nodes reach consensus on the verification report. Signed report submitted on-chain." },
     { step: "ACE", title: "Policy", desc: "runPolicy() \u2014 TieredPolicy enforces the final on-chain safety check. Approve or reject." },
   ];
@@ -79,12 +79,12 @@ function PipelineSection() {
       <div style={{ opacity: vis ? 1 : 0, transform: vis ? "none" : "translateY(24px)", transition: "all .8s cubic-bezier(.16,1,.3,1)" }}>
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: t.blue, textTransform: "uppercase" }}>The Pipeline</span>
         <h2 style={{ fontSize: mobile ? 32 : 48, fontWeight: 900, letterSpacing: -2, margin: "16px 0 0", lineHeight: 1.05, textTransform: "uppercase" }}>
-          5-Gate verification with<br />
+          4-Gate verification with<br />
           CRE&apos;s DON consensus<span style={{ color: t.blue }}>.</span><br />
           &amp; ACE enforcement<span style={{ color: t.blue }}>.</span>
         </h2>
         <p style={{ fontSize: mobile ? 15 : 17, color: t.inkMuted, margin: "20px 0 0", maxWidth: 520, lineHeight: 1.7 }}>
-          Every request passes through CRE&apos;s 5-Gate pipeline. DON nodes sign the report. ACE enforces on-chain — even if CRE is compromised.
+          Every request passes through CRE&apos;s 4-Gate pipeline — 2 on-chain reads + 2 TEE-attested confidential HTTP calls. DON nodes sign the report. ACE enforces on-chain.
         </p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "repeat(3,1fr)", gap: mobile ? 0 : 1, marginTop: 56 }}>
@@ -155,7 +155,7 @@ const appCode: Record<AppLang, CodeBlock> = {
   go: {
     file: "verify.go",
     lines: [
-      { text: 'import whitewallos "github.com/whitewall-os/sdk-go"', color: "keyword" },
+      { text: 'import whitewallos "github.com/hihi-yessir/whitewall-os/sdk-go"', color: "keyword" },
       { text: "" },
       { text: "client, err := whitewallos.Connect(", color: "default" },
       { text: '    ctx, whitewallos.Config{Chain: whitewallos.BaseSepolia},', color: "string" },
@@ -201,16 +201,21 @@ const solidityModifiers = [
 const appMethods = [
   { name: "getFullStatus", desc: "Full status — registration, human verification, KYC, credit score, effective tier.", sig: "(agentId)" },
   { name: "isHumanVerified", desc: "Quick boolean — does this agent have an accountable human?", sig: "(agentId)" },
-  { name: "isKYCVerified", desc: "Check if the agent's owner has completed KYC via StripeKYCValidator.", sig: "(agentId)" },
-  { name: "getCreditScore", desc: "Retrieve the agent owner's credit score from PlaidCreditValidator.", sig: "(agentId)" },
-  { name: "isRegistered", desc: "Check if an agent exists in the IdentityRegistry.", sig: "(agentId)" },
-  { name: "onAccessGranted", desc: "Watch for real-time AccessGranted events on-chain.", sig: "(callback)" },
+  { name: "getKYCData", desc: "Full KYC record — status, validator address, verification timestamp.", sig: "(agentId)" },
+  { name: "getCreditData", desc: "Credit score, threshold, and TEE attestation status from PlaidCreditValidator.", sig: "(agentId)" },
+  { name: "isTeeEnabled", desc: "Check if TEE verification is active — returns verifier address and config.", sig: "()" },
+  { name: "getValidationSummary", desc: "Aggregated validation pipeline view — all validator results for an agent.", sig: "(agentId)" },
+  { name: "onAccessDenied", desc: "Watch for real-time AccessDenied events with denial reasons.", sig: "(callback)" },
+  { name: "onCreditScoreSet", desc: "Watch for CreditScoreSet events — TEE-attested score updates.", sig: "(callback)" },
 ];
 
 const mcpTools = [
   { name: "whitewall_os_check_agent", desc: "Quick check — is this agent registered and human-verified?", sig: "(agentId)" },
   { name: "whitewall_os_get_status", desc: "Full report — registration, tier, owner, wallet, validations.", sig: "(agentId)" },
-  { name: "whitewall_os_get_policy", desc: "Read TieredPolicy config from chain — validators, minCreditScore, tier thresholds.", sig: "()" },
+  { name: "whitewall_os_get_policy", desc: "TieredPolicy config + TEE status, registry addresses, validator list.", sig: "()" },
+  { name: "whitewall_os_get_kyc_data", desc: "KYC verification record — status, validator, timestamp.", sig: "(agentId)" },
+  { name: "whitewall_os_get_credit_data", desc: "Credit score with TEE attestation status and quote verification.", sig: "(agentId)" },
+  { name: "whitewall_os_get_validations", desc: "Full validation pipeline — all validator requests and responses for an agent.", sig: "(agentId)" },
 ];
 
 // CodeViewer imported from shared/theme
@@ -310,61 +315,79 @@ function IntegrateSection() {
         transition: "all .7s 0.35s cubic-bezier(.16,1,.3,1)",
       }}>
         {tier === "dapp" && (
-          <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
-            <CodeViewer code={solidityCode} colorMap={colorMap} />
-            <FeatureCards items={solidityModifiers} label="3 Modifiers" />
-          </div>
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+              <CodeViewer code={solidityCode} colorMap={colorMap} />
+              <FeatureCards items={solidityModifiers} label="3 Modifiers" />
+            </div>
+            <a href="https://github.com/hihi-yessir/whitewall-os/tree/main/contracts" target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 12, fontSize: 11, color: t.inkMuted, textDecoration: "none", fontWeight: 600 }}>
+              View contracts on GitHub {"\u2197"}
+            </a>
+          </>
         )}
 
         {tier === "app" && (
-          <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
-            <div style={{
-              borderRadius: 12, overflow: "hidden",
-              border: `1.5px solid ${t.cardBorder}`, background: `${t.codeBg}CC`, backdropFilter: "blur(8px)",
-            }}>
-              {/* Header with traffic lights + lang toggle */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: `${t.codeHeader}CC`, borderBottom: `1px solid ${t.cardBorder}` }}>
-                <div style={{ width: 10, height: 10, borderRadius: 5, background: t.red, opacity: 0.8 }} />
-                <div style={{ width: 10, height: 10, borderRadius: 5, background: "#E8A317", opacity: 0.8 }} />
-                <div style={{ width: 10, height: 10, borderRadius: 5, background: t.green, opacity: 0.8 }} />
-                <span style={{ marginLeft: 8, fontSize: 12, color: t.inkMuted, fontFamily: "monospace" }}>{appCode[appLang].file}</span>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 2, background: `${t.bg}80`, borderRadius: 5, padding: 2 }}>
-                  {(["typescript", "go"] as AppLang[]).map((lang) => {
-                    const isActive = appLang === lang;
-                    return (
-                      <button key={lang} onClick={() => setAppLang(lang)} style={{
-                        padding: "3px 10px", border: "none", cursor: "pointer",
-                        borderRadius: 4, fontSize: 11, fontWeight: 700, transition: "all .15s",
-                        background: isActive ? t.blue : "transparent",
-                        color: isActive ? "#fff" : t.inkMuted,
-                        lineHeight: 1.3,
-                      }}>
-                        {lang === "typescript" ? "TS" : "Go"}
-                      </button>
-                    );
-                  })}
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+              <div style={{
+                borderRadius: 12, overflow: "hidden",
+                border: `1.5px solid ${t.cardBorder}`, background: `${t.codeBg}CC`, backdropFilter: "blur(8px)",
+              }}>
+                {/* Header with traffic lights + lang toggle */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", background: `${t.codeHeader}CC`, borderBottom: `1px solid ${t.cardBorder}` }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 5, background: t.red, opacity: 0.8 }} />
+                  <div style={{ width: 10, height: 10, borderRadius: 5, background: "#E8A317", opacity: 0.8 }} />
+                  <div style={{ width: 10, height: 10, borderRadius: 5, background: t.green, opacity: 0.8 }} />
+                  <span style={{ marginLeft: 8, fontSize: 12, color: t.inkMuted, fontFamily: "monospace" }}>{appCode[appLang].file}</span>
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 2, background: `${t.bg}80`, borderRadius: 5, padding: 2 }}>
+                    {(["typescript", "go"] as AppLang[]).map((lang) => {
+                      const isActive = appLang === lang;
+                      return (
+                        <button key={lang} onClick={() => setAppLang(lang)} style={{
+                          padding: "6px 14px", border: "none", cursor: "pointer",
+                          borderRadius: 4, fontSize: 11, fontWeight: 700, transition: "all .15s",
+                          background: isActive ? t.blue : "transparent",
+                          color: isActive ? "#fff" : t.inkMuted,
+                          lineHeight: 1.3,
+                        }}>
+                          {lang === "typescript" ? "TS" : "Go"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {/* Code */}
+                <div style={{ padding: mobile ? "16px 12px" : "20px 24px", overflowX: "auto" }}>
+                  <pre style={{ margin: 0, fontFamily: "'SF Mono','Fira Code',monospace", fontSize: mobile ? 12 : 13, lineHeight: 1.7 }}>
+                    {appCode[appLang].lines.map((line, i) => (
+                      <div key={`${appLang}-${i}`} style={{ color: colorMap[line.color || "default"], minHeight: "1.7em" }}>
+                        {line.text || "\u00A0"}
+                      </div>
+                    ))}
+                  </pre>
                 </div>
               </div>
-              {/* Code */}
-              <div style={{ padding: mobile ? "16px 12px" : "20px 24px", overflowX: "auto" }}>
-                <pre style={{ margin: 0, fontFamily: "'SF Mono','Fira Code',monospace", fontSize: mobile ? 12 : 13, lineHeight: 1.7 }}>
-                  {appCode[appLang].lines.map((line, i) => (
-                    <div key={`${appLang}-${i}`} style={{ color: colorMap[line.color || "default"], minHeight: "1.7em" }}>
-                      {line.text || "\u00A0"}
-                    </div>
-                  ))}
-                </pre>
-              </div>
+              <FeatureCards items={appMethods} label="Key Methods" />
             </div>
-            <FeatureCards items={appMethods} label="Key Methods" />
-          </div>
+            <a href={`https://github.com/hihi-yessir/whitewall-os/tree/main/${appLang === "go" ? "sdk-go" : "sdk"}`} target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 12, fontSize: 11, color: t.inkMuted, textDecoration: "none", fontWeight: 600 }}>
+              View {appLang === "go" ? "Go" : "TypeScript"} SDK on GitHub {"\u2197"}
+            </a>
+          </>
         )}
 
         {tier === "agent" && (
-          <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
-            <CodeViewer code={mcpConfig} colorMap={colorMap} />
-            <FeatureCards items={mcpTools} label="3 Tools" />
-          </div>
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+              <CodeViewer code={mcpConfig} colorMap={colorMap} />
+              <FeatureCards items={mcpTools} label="6 Tools" />
+            </div>
+            <a href="https://github.com/hihi-yessir/whitewall-os/tree/main/mcp" target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-block", marginTop: 12, fontSize: 11, color: t.inkMuted, textDecoration: "none", fontWeight: 600 }}>
+              View MCP server on GitHub {"\u2197"}
+            </a>
+          </>
         )}
       </div>
     </section>
@@ -397,7 +420,7 @@ function Footer() {
       {/* Powered by */}
       <div style={{ marginTop: 60, paddingTop: 30, borderTop: `1px solid ${t.cardBorder}`, display: "flex", justifyContent: "center", alignItems: "center", gap: mobile ? 16 : 36, flexWrap: "wrap" }}>
         <span style={{ fontSize: mobile ? 10 : 12, color: t.inkMuted, whiteSpace: "nowrap", fontWeight: 500 }}>Powered by:</span>
-        {["Chainlink CRE", "Chainlink DON", "Chainlink ACE", "World ID", "x402"].map((n) => (
+        {["Chainlink CRE", "Chainlink DON", "Chainlink ACE", "World ID", "x402", "TEE"].map((n) => (
           <span key={n} style={{ fontSize: mobile ? 9 : 12, color: t.inkMuted, opacity: 0.3, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase" }}>{n}</span>
         ))}
       </div>
@@ -405,7 +428,7 @@ function Footer() {
       {/* Links */}
       <div style={{ marginTop: 30, display: "flex", justifyContent: "center", gap: mobile ? 8 : 32, flexWrap: "wrap" }}>
         {[
-          { label: "GitHub", href: "https://github.com/whitewall-os" },
+          { label: "GitHub", href: "https://github.com/hihi-yessir/whitewall-os" },
           { label: "Live Demo", href: "/demo" },
           { label: "Try It Out", href: "/tryout" },
           { label: "Agent Feed", href: "/feed" },
@@ -498,7 +521,7 @@ export default function WhitewallLanding() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <ThemeToggle />
                 <button onClick={() => setMenuOpen(true)} style={{
-                  width: 36, height: 36, borderRadius: 8, border: `1.5px solid ${t.cardBorder}`,
+                  width: 44, height: 44, borderRadius: 8, border: `1.5px solid ${t.cardBorder}`,
                   background: "transparent", cursor: "pointer", display: "flex", alignItems: "center",
                   justifyContent: "center", color: t.ink, fontSize: 18,
                 }}>{"\u2630"}</button>
@@ -533,9 +556,9 @@ export default function WhitewallLanding() {
                 LICENSE PLATES FOR THE AGENTIC ECONOMY
               </div>
               <h1 style={{
-                fontSize: mobile ? 38 : 68, fontWeight: 900, lineHeight: 1.02, margin: 0,
+                fontSize: mobile ? 32 : 68, fontWeight: 900, lineHeight: 1.02, margin: 0,
                 letterSpacing: mobile ? -1.5 : -2.5, textTransform: "uppercase",
-                color: t.ink, transition: "color .4s", whiteSpace: "nowrap",
+                color: t.ink, transition: "color .4s",
               }}>
                 <span className="ha" style={{ animationDelay: "0.35s", display: "block" }}>A billion agents,</span>
                 <span className="ha" style={{ animationDelay: "0.55s", display: "block" }}>
@@ -554,7 +577,7 @@ export default function WhitewallLanding() {
                 <Btn small={mobile} href="/tryout">Get Your License</Btn>
                 <Btn small={mobile} href="/feed">Agent Feed</Btn>
               </div>
-              <a className="ha" href="https://github.com" target="_blank" rel="noopener noreferrer" style={{
+              <a className="ha" href="https://github.com/hihi-yessir/whitewall-os" target="_blank" rel="noopener noreferrer" style={{
                 animationDelay: "1.15s", display: "inline-block", marginTop: 12,
                 fontSize: 12, color: t.inkMuted, textDecoration: "none", fontWeight: 600,
                 letterSpacing: 0.5,

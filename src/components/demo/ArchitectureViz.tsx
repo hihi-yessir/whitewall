@@ -3,13 +3,13 @@
 import { useContext, useRef, useState, useCallback } from "react";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
+import { proxyMedia } from "@/lib/media";
 import type { PipelineStepState, ScenarioId, GenerationResult } from "./types";
 import {
   NODE_LAYOUT,
   NODE_TOOLTIPS,
   CANVAS_W,
   CANVAS_H,
-  NODE_SIZE,
   nodeCenter,
   computeGroupZones,
   type NodeTooltip,
@@ -128,7 +128,7 @@ function ResultStrip({ result, generation }: {
               flexShrink: 0,
             }}>
               <img
-                src={generation.imageUrl}
+                src={proxyMedia(generation.imageUrl)}
                 alt={generation.prompt}
                 style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
               />
@@ -354,22 +354,38 @@ function DesktopViz({ steps, scenario, aceExpanded, onToggleAce, result, generat
               width={zone.w}
               height={zone.h}
               rx={12}
-              fill={`${t.cardBorder}08`}
-              stroke={`${t.cardBorder}15`}
-              strokeWidth={1}
+              fill={zone.tee ? "#f59e0b06" : `${t.cardBorder}08`}
+              stroke={zone.tee ? "#f59e0b25" : `${t.cardBorder}15`}
+              strokeWidth={zone.tee ? 1.5 : 1}
+              strokeDasharray={zone.tee ? "5 3" : "none"}
             />
+            {/* Zone label at top */}
             <text
               x={zone.x + zone.w / 2}
-              y={zone.y + 10}
+              y={zone.y + 12}
               textAnchor="middle"
-              fill={`${t.inkMuted}50`}
+              fill={zone.tee ? "#f59e0b90" : `${t.inkMuted}60`}
               fontSize={7}
               fontWeight={800}
               fontFamily="'SF Mono','Fira Code',monospace"
-              letterSpacing={1}
+              letterSpacing={1.2}
             >
               {zone.label}
             </text>
+            {/* Zone subtitle */}
+            {zone.subtitle && (
+              <text
+                x={zone.x + zone.w / 2}
+                y={zone.y + zone.h - 5}
+                textAnchor="middle"
+                fill={zone.tee ? "#f59e0b50" : `${t.inkMuted}35`}
+                fontSize={6}
+                fontFamily="'SF Mono','Fira Code',monospace"
+                letterSpacing={0.5}
+              >
+                {zone.subtitle}
+              </text>
+            )}
           </g>
         ))}
       </svg>

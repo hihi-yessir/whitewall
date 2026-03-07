@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useState, useCallback, useEffect, type Dispatch } from "react";
+import { useContext, useState, useCallback, useEffect, useRef, type Dispatch } from "react";
 import { ThemeCtx, Btn } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { TryoutAction, TryoutState, TerminalEntry, GenerationResult } from "./types";
@@ -126,12 +126,29 @@ export function TryoutFlow({
   // Agent wallet balance
   const [agentBalance, setAgentBalance] = useState<string | null>(null);
   const [isFunding, setIsFunding] = useState(false);
+  const [balFlash, setBalFlash] = useState(false);
+  const prevBalRef = useRef<string | null>(null);
 
   const { wallet, agent, prompt, isGenerating, generation, videoGeneration, tierData } = state;
 
   const addLog = useCallback((tag: string, message: string, status: TerminalEntry["status"]) => {
     dispatch({ type: "ADD_TERMINAL", entry: { tag, message, status, timestamp: Date.now() } });
   }, [dispatch]);
+
+  // Log activity event to feed timeline (fire-and-forget)
+  const logActivity = useCallback((type: string, opts: { txHash?: string; detail?: string } = {}) => {
+    if (!agent.id || !wallet.address) return;
+    fetch("/api/activity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        agentId: agent.id.toString(),
+        ownerAddress: wallet.address,
+        ...opts,
+      }),
+    }).catch(() => {});
+  }, [agent.id, wallet.address]);
 
   // Check agent wallet USDC balance
   const checkAgentBalance = useCallback(async () => {
@@ -144,7 +161,13 @@ export function TryoutFlow({
         functionName: "balanceOf",
         args: [agent.agentWallet as `0x${string}`],
       });
-      setAgentBalance((Number(bal) / 1e6).toFixed(2));
+      const formatted = (Number(bal) / 1e6).toFixed(2);
+      if (prevBalRef.current !== null && prevBalRef.current !== formatted) {
+        setBalFlash(true);
+        setTimeout(() => setBalFlash(false), 1200);
+      }
+      prevBalRef.current = formatted;
+      setAgentBalance(formatted);
     } catch {
       // silent
     }
@@ -171,7 +194,7 @@ export function TryoutFlow({
         setAgentBalance(parseFloat(data.balance).toFixed(2));
         addLog("FAUCET", `Agent already has ${data.balance} USDC`, "pass");
       } else if (data.success) {
-        addLog("FAUCET", `${data.amount} USDC funded (tx: ${data.txHash?.slice(0, 10)}...)`, "pass");
+        addLog("FAUCET", `${data.amount} USDC funded (tx: ${data.txHash || "pending"})`, "pass");
         await checkAgentBalance();
       } else if (data.error) {
         addLog("FAUCET", data.error, "warn");
@@ -267,7 +290,7 @@ export function TryoutFlow({
         args: ["ipfs://demo-agent"],
       });
 
-      addLog("TX", `Waiting for confirmation: ${hash.slice(0, 10)}...`, "info");
+      addLog("TX", `Waiting for confirmation: ${hash}`, "info");
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
       const transferLogs = parseEventLogs({
@@ -281,6 +304,7 @@ export function TryoutFlow({
         dispatch({ type: "SET_AGENT", agent: { id: agentId, isRegistered: true } });
         dispatch({ type: "SET_TIER_DATA", tierData: { registered: true, effectiveTier: 1, txHashes: { ...tierData.txHashes, register: hash } } });
         addLog("REGISTER", `Agent #${agentId.toString()} registered (ERC-8004 NFT minted)`, "pass");
+        logActivity("register", { txHash: hash, detail: `Agent #${agentId.toString()} minted` });
         setStep("approve");
       } else {
         throw new Error("Transfer event not found in receipt");
@@ -292,7 +316,7 @@ export function TryoutFlow({
     } finally {
       setLoading(false);
     }
-  }, [wallet, identityRegistry, dispatch, addLog, tierData.txHashes]);
+  }, [wallet, identityRegistry, dispatch, addLog, logActivity, tierData.txHashes]);
 
   const approveValidator = useCallback(async () => {
     if (!wallet.address || !identityRegistry || !worldIdValidator || !agent.id) return;
@@ -314,12 +338,13 @@ export function TryoutFlow({
         args: [worldIdValidator as `0x${string}`, agent.id],
       });
 
-      addLog("TX", `Waiting for confirmation: ${hash.slice(0, 10)}...`, "info");
+      addLog("TX", `Waiting for confirmation: ${hash}`, "info");
       await publicClient.waitForTransactionReceipt({ hash });
 
       dispatch({ type: "SET_AGENT", agent: { isApproved: true } });
       dispatch({ type: "SET_TIER_DATA", tierData: { txHashes: { ...tierData.txHashes, approve: hash } } });
       addLog("APPROVE", "WorldIDValidator approved for this agent", "pass");
+      logActivity("approve", { txHash: hash });
 
       await loadIDKit();
       setIdkitReady(true);
@@ -331,7 +356,7 @@ export function TryoutFlow({
     } finally {
       setLoading(false);
     }
-  }, [wallet, identityRegistry, worldIdValidator, agent.id, dispatch, addLog, tierData.txHashes]);
+  }, [wallet, identityRegistry, worldIdValidator, agent.id, dispatch, addLog, logActivity, tierData.txHashes]);
 
   const handleWorldIDVerify = useCallback(async (result: any) => {
     if (!wallet.address || !worldIdValidator || !agent.id) return;
@@ -361,13 +386,14 @@ export function TryoutFlow({
         gas: 2000000n,
       });
 
-      addLog("TX", `Waiting for confirmation: ${hash.slice(0, 10)}...`, "info");
+      addLog("TX", `Waiting for confirmation: ${hash}`, "info");
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
 
       if (receipt.status === "success") {
         dispatch({ type: "SET_AGENT", agent: { isHumanVerified: true } });
         dispatch({ type: "SET_TIER_DATA", tierData: { humanVerified: true, effectiveTier: 2, txHashes: { ...tierData.txHashes, worldId: hash } } });
         addLog("WORLD ID", "Human verification tag set on-chain!", "pass");
+        logActivity("worldid", { txHash: hash, detail: "Human bond verified via World ID" });
 
         // Auto: Create agent wallet + fund with USDC
         setStep("bootstrapping");
@@ -390,9 +416,9 @@ export function TryoutFlow({
           }
           if (walletResp?.ok && walletData) {
             dispatch({ type: "SET_AGENT", agent: { agentWallet: walletData.address, agentFunded: walletData.funded } });
-            addLog("AGENT", `Agent wallet created: ${walletData.address.slice(0, 10)}...`, "pass");
+            addLog("AGENT", `Agent wallet created: ${walletData.address}`, "pass");
             if (walletData.funded) {
-              addLog("FAUCET", `${walletData.amount} USDC funded to agent wallet (tx: ${walletData.txHash?.slice(0, 10)}...)`, "pass");
+              addLog("FAUCET", `${walletData.amount} USDC funded to agent wallet (tx: ${walletData.txHash || "pending"})`, "pass");
             } else {
               addLog("FAUCET", "USDC funding unavailable \u2014 agent wallet created without balance", "warn");
             }
@@ -414,7 +440,7 @@ export function TryoutFlow({
     } finally {
       setLoading(false);
     }
-  }, [wallet, worldIdValidator, agent.id, dispatch, addLog, tierData.txHashes]);
+  }, [wallet, worldIdValidator, agent.id, dispatch, addLog, logActivity, tierData.txHashes]);
 
   /* ═══════════════════════════════════════════════════════
      Phase 2: Image generation
@@ -572,7 +598,8 @@ export function TryoutFlow({
       await publicClient.waitForTransactionReceipt({ hash });
       dispatch({ type: "SET_TIER_DATA", tierData: { txHashes: { ...tierData.txHashes, kyc: hash } } });
       dispatch({ type: "SET_KYC_STATUS", status: "done" });
-      addLog("KYC", `Validation request tx: ${hash.slice(0, 10)}... — waiting for CRE`, "pass");
+      addLog("KYC", `Validation request tx: ${hash} — waiting for CRE`, "pass");
+      logActivity("kyc", { txHash: hash, detail: "KYC validation request submitted" });
     } catch (err: any) {
       const msg = err.shortMessage || err.message || "KYC failed";
       setError(msg);
@@ -581,7 +608,7 @@ export function TryoutFlow({
     } finally {
       setLoading(false);
     }
-  }, [agent.id, wallet.address, dispatch, addLog, tierData.txHashes]);
+  }, [agent.id, wallet.address, dispatch, addLog, logActivity, tierData.txHashes]);
 
   const startCredit = useCallback(async () => {
     if (!agent.id || !wallet.address) return;
@@ -643,7 +670,8 @@ export function TryoutFlow({
       await publicClient.waitForTransactionReceipt({ hash });
       dispatch({ type: "SET_TIER_DATA", tierData: { txHashes: { ...tierData.txHashes, credit: hash } } });
       dispatch({ type: "SET_CREDIT_STATUS", status: "done" });
-      addLog("CREDIT", `Validation request tx: ${hash.slice(0, 10)}... — waiting for CRE`, "pass");
+      addLog("CREDIT", `Validation request tx: ${hash} — waiting for CRE`, "pass");
+      logActivity("credit", { txHash: hash, detail: "Credit validation request submitted" });
     } catch (err: any) {
       const msg = err.shortMessage || err.message || "Credit validation failed";
       setError(msg);
@@ -652,7 +680,7 @@ export function TryoutFlow({
     } finally {
       setLoading(false);
     }
-  }, [agent.id, wallet.address, dispatch, addLog, tierData.txHashes]);
+  }, [agent.id, wallet.address, dispatch, addLog, logActivity, tierData.txHashes]);
 
   const handlePlaidExit = useCallback(() => {
     if (state.creditStatus === "linking") {
@@ -797,7 +825,7 @@ export function TryoutFlow({
           title="Start Over"
           style={{
             position: "absolute", top: mobile ? 12 : 20, right: mobile ? 12 : 16,
-            width: 28, height: 28, borderRadius: 6,
+            width: 44, height: 44, borderRadius: 8,
             border: `1px solid ${t.cardBorder}40`, background: `${t.card}80`,
             color: t.inkMuted, cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -820,6 +848,51 @@ export function TryoutFlow({
       {renderProgressBar(PHASE1_STEPS, step, currentPhase > 1, "Setup", 1)}
       {currentPhase >= 2 && renderProgressBar(PHASE2_STEPS, step, currentPhase > 2, "T2 Access", 2)}
       {currentPhase >= 3 && renderProgressBar(PHASE3_STEPS, step, step === "done", "T3\u2013T4 Verify", 3)}
+
+      {/* ── Persistent Agent Balance ── */}
+      {agent.agentWallet && agentBalance !== null && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderRadius: 8,
+          background: balFlash
+            ? `${parseFloat(agentBalance) >= parseFloat(prevBalRef.current || "0") ? t.green : t.red}10`
+            : `${t.codeBg}CC`,
+          border: `1px solid ${balFlash
+            ? `${parseFloat(agentBalance) >= parseFloat(prevBalRef.current || "0") ? t.green : t.red}35`
+            : `${t.cardBorder}30`}`,
+          transition: "all .4s ease",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{
+              fontSize: 11,
+              display: "inline-block",
+              animation: balFlash ? "balCoinSpin .6s ease" : "none",
+            }}>
+              {"\u25CB"}
+            </span>
+            <div>
+              <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: t.inkMuted }}>
+                Agent Balance
+              </div>
+              <div style={{
+                fontSize: 14, fontWeight: 800,
+                fontFamily: "'SF Mono','Fira Code',monospace",
+                fontVariantNumeric: "tabular-nums",
+                color: parseFloat(agentBalance) > 0 ? t.green : t.red,
+                transition: "color .3s",
+              }}>
+                {agentBalance} USDC
+              </div>
+            </div>
+          </div>
+          <div style={{
+            fontFamily: "'SF Mono','Fira Code',monospace",
+            fontSize: 9, color: t.inkMuted, opacity: 0.6,
+          }}>
+            {agent.agentWallet.slice(0, 6)}...{agent.agentWallet.slice(-4)}
+          </div>
+        </div>
+      )}
 
       {/* ── Current Step Card ── */}
       <div style={{
@@ -1236,7 +1309,7 @@ export function TryoutFlow({
                             href={`https://sepolia.basescan.org/tx/${tierData.creditTxHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="View TEE-attested credit score transaction with SGX quotes"
+                            title="View TEE-attested credit score transaction"
                             style={{
                               fontSize: 9, fontFamily: "'SF Mono','Fira Code',monospace",
                               color: t.blue, textDecoration: "none",

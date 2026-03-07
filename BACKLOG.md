@@ -2,21 +2,18 @@
 
 ## Open
 
-### Security
-- [ ] Rotate `FAUCET_PRIVATE_KEY` on **Vercel** dashboard (`.env.local` already updated)
-
-### Demo
-- [ ] Demo diagram: add TEE node to pipeline visualization
-### Feed / Dashboard
-- [ ] Live activity: show registrations, verifications beyond just generations (activity timeline)
-
-### Mobile QA
-- [ ] Full mobile pass across all pages (layout, spacing, touch targets, scrolling)
+_No open items._
 
 ---
 
 ## Completed
 
+- [x] Rotate `FAUCET_PRIVATE_KEY` on Vercel dashboard
+- [x] Set `BASE_SEPOLIA_RPC_URL` on Vercel (private RPC)
+- [x] Feed DB reset: admin endpoint + admin badge in FeedNav (deployer wallet gated, dropdown panel)
+- [x] Demo diagram: TEE enclave badge on Gate 4 / Credit (dashed amber border + TEE label)
+- [x] Live activity: horizontal timeline on feed page (registrations, verifications, KYC, credit)
+- [x] Full mobile pass across all pages (layout, spacing, touch targets, scrolling)
 - [x] Dead code cleanup (blob.ts, genapi.ts, /api/generate, /api/generate-video, MeshBG dead code, THREE import)
 - [x] Footer links fixed (href="#" → real destinations)
 - [x] LicensePlate: "REGIST" label, placeholder image, video playback fix, TEE Verified badge
@@ -32,3 +29,5 @@
 - [x] FAUCET_PRIVATE_KEY updated in .env.local
 - [x] Next.js 16 build fix: split `ssr: false` dynamic imports into client wrappers (all 4 pages)
 - [x] Remove AI-looking emojis across codebase (replaced with clean typographic symbols)
+- [x] Landing page: 3 entry-point CTAs (Live Demo, Get Your License, Agent Feed) replacing Memorandum
+- [x] Cross-page navigation links (demo ↔ tryout ↔ feed)

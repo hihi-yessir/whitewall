@@ -50,7 +50,7 @@ export function DemoNav({ currentScenario, isRunning, onScenario }: {
       </a>
 
       {/* Center: tier buttons — full labels on desktop, short on mobile */}
-      <div style={{ display: "flex", gap: mobile ? 4 : 6, alignItems: "center", flexWrap: "nowrap" }}>
+      <div style={{ display: "flex", gap: mobile ? 2 : 6, alignItems: "center", flexWrap: "nowrap", overflowX: mobile ? "auto" : "visible", maxWidth: mobile ? "calc(100vw - 120px)" : "none", scrollbarWidth: "none" }}>
         {TIERS.map((entry) => {
           const active = currentScenario === entry.scenario;
           const isHovered = hovered === entry.tier;
@@ -62,7 +62,8 @@ export function DemoNav({ currentScenario, isRunning, onScenario }: {
               onMouseEnter={() => setHovered(entry.tier)}
               onMouseLeave={() => setHovered(null)}
               style={{
-                padding: mobile ? "6px 10px" : "8px 14px",
+                padding: mobile ? "8px 8px" : "8px 14px",
+                minHeight: 44,
                 border: active
                   ? `1.5px solid ${t.blue}`
                   : `1.5px solid ${isHovered ? `${t.ink}40` : `${t.cardBorder}60`}`,

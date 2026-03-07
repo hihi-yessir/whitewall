@@ -5,6 +5,7 @@ import { baseSepolia } from "viem/chains";
 import { getAgentKey } from "@/lib/agent-keys";
 import { USDC_ADDRESS } from "@/lib/contracts";
 import { getRedis, FEED_KEY, genKey, rateLimitKey, ownerFeedKey, STATS_GRANTED, STATS_DENIED, STATS_AGENTS, STATS_TEE } from "@/lib/redis";
+import { uploadFromUrl } from "@/lib/blob";
 
 const RATE_LIMIT = 3;
 const RATE_WINDOW = 60;
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
         send({ type: "terminal", tag: "AGENT", message: `Agent #${agentId} received task: "${cleanPrompt.slice(0, 50)}${cleanPrompt.length > 50 ? "..." : ""}"`, termStatus: "info" });
 
         const { fetchWithPayment, signer } = await buildPaymentFetch(agentKey);
-        send({ type: "terminal", tag: "AGENT", message: `Agent wallet: ${shorten(signer.address)}`, termStatus: "info" });
+        send({ type: "terminal", tag: "AGENT", message: `Agent wallet: ${signer.address}`, termStatus: "info" });
 
         // ── C1. Read on-chain tier before proceeding ────────────────
         let onChainTier = genType === "video" ? 3 : 2; // sensible minimum
@@ -227,7 +228,7 @@ export async function POST(request: NextRequest) {
         const txHash = gatewayResult.txHash || "";
 
         send({ type: "terminal", tag: "x402", message: "Payment verified + settled on-chain", termStatus: "pass" });
-        send({ type: "terminal", tag: "x402", message: `txHash: ${txHash ? shorten(txHash) : "pending"}`, termStatus: "info" });
+        send({ type: "terminal", tag: "x402", message: `txHash: ${txHash || "pending"}`, termStatus: "info" });
         send({ type: "step", stepId: "x402", status: "pass", detail: "Payment settled", timing: 1500 });
 
         // ── E. Emit synthetic gate steps (already passed on gateway) ────
@@ -238,7 +239,7 @@ export async function POST(request: NextRequest) {
         // CRE / Gates — match actual on-chain verification state
         const tierNum = Number(tier);
         send({ type: "step", stepId: "cre", status: "pass", detail: "Pipeline valid", timing: 500 });
-        send({ type: "step", stepId: "gate1", status: "pass", detail: shorten(ownerAddress), timing: 400 });
+        send({ type: "step", stepId: "gate1", status: "pass", detail: "Registered", timing: 400 });
         send({ type: "step", stepId: "gate2", status: "pass", detail: "Human verified", timing: 300 });
         send({ type: "step", stepId: "gate3", status: tierNum >= 3 ? "pass" : "skipped", detail: tierNum >= 3 ? "KYC verified" : "Not required", timing: tierNum >= 3 ? 200 : undefined });
         send({ type: "step", stepId: "gate4", status: tierNum >= 4 ? "pass" : "skipped", detail: tierNum >= 4 ? "Credit verified" : "Not required", timing: tierNum >= 4 ? 150 : undefined });
@@ -247,7 +248,7 @@ export async function POST(request: NextRequest) {
 
         // Settlement
         send({ type: "step", stepId: "don", status: "pass", detail: txHash ? `settled` : "pending", timing: 900 });
-        send({ type: "terminal", tag: "SETTLE", message: `USDC transferred (${agentShort} → Gateway)`, termStatus: "pass" });
+        send({ type: "terminal", tag: "SETTLE", message: `USDC transferred (${agentAddr} → Gateway)`, termStatus: "pass" });
 
         // ── F. Stream generation progress from Gateway ─────────────────
         send({ type: "step", stepId: "ace", status: "active" });
@@ -315,13 +316,25 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        // ── G. Record in Redis feed ────────────────────────────────────
+        // ── G. Re-upload artifact to Vercel Blob (CDN-backed, no CORS/DNS issues) ──
         send({ type: "step", stepId: "result", status: "active" });
-        send({ type: "terminal", tag: "LEDGER", message: "Recording license plate in feed...", termStatus: "info" });
+        send({ type: "terminal", tag: "BLOB", message: "Uploading to permanent storage...", termStatus: "info" });
 
         const genId = crypto.randomUUID();
+        let permanentUrl = artifactUrl;
+        try {
+          const ext = genType === "video" ? "mp4" : "png";
+          permanentUrl = await uploadFromUrl(artifactUrl, `generations/${genId}.${ext}`);
+          send({ type: "terminal", tag: "BLOB", message: "Stored permanently", termStatus: "pass" });
+        } catch (blobErr: unknown) {
+          const msg = blobErr instanceof Error ? blobErr.message : "Blob upload failed";
+          send({ type: "terminal", tag: "BLOB", message: `Blob upload failed, using gateway URL: ${msg}`, termStatus: "fail" });
+        }
+
+        send({ type: "terminal", tag: "LEDGER", message: "Recording license plate in feed...", termStatus: "info" });
+
         const entry = {
-          id: genId, prompt: cleanPrompt, imageUrl: artifactUrl, status: "granted",
+          id: genId, prompt: cleanPrompt, imageUrl: permanentUrl, status: "granted",
           agentId, ownerAddress: ownerAddress.toLowerCase(),
           humanVerified: "true", tier, reason: "",
           txHash,
@@ -342,8 +355,8 @@ export async function POST(request: NextRequest) {
         send({
           type: "result", status: "granted",
           id: genId,
-          imageUrl: artifactUrl,
-          videoUrl: genType === "video" ? artifactUrl : undefined,
+          imageUrl: permanentUrl,
+          videoUrl: genType === "video" ? permanentUrl : undefined,
           prompt: cleanPrompt,
           agentId, ownerAddress: ownerAddress.toLowerCase(),
           tier: Number(tier),

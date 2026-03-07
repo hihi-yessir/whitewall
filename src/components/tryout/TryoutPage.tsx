@@ -165,6 +165,10 @@ export default function TryoutPage() {
             from { opacity: 0; transform: translateY(4px); }
             to { opacity: 1; transform: none; }
           }
+          @keyframes balCoinSpin {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(360deg); }
+          }
           ::selection { background: ${t.blue}30; }
           ::-webkit-scrollbar { width: 6px; }
           ::-webkit-scrollbar-track { background: ${t.bg}; }

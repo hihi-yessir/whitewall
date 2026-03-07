@@ -40,14 +40,14 @@ export interface AceCheck {
 // ─── Layout Constants ────────────────────────────────────
 
 export const COL_WIDTH = 120;
-export const ROW_HEIGHT = 90;
+export const ROW_HEIGHT = 100;
 export const NODE_SIZE = 48;
-export const GRAPH_PAD = { x: 36, y: 0 };
+export const GRAPH_PAD = { x: 50, y: 0 };
 
-// Total columns: 0-7 → canvas width = 36 + 7*120 + 36 = 912
+// Total columns: 0-7 → canvas width = 50 + 7*120 + 50 = 940
 export const CANVAS_W = GRAPH_PAD.x * 2 + 7 * COL_WIDTH;
-// Rows span from -1.5 to +1.5 → 3 * 90 = 270, plus padding
-export const CANVAS_H = ROW_HEIGHT * 4 + 40;
+// Rows span from -1.5 to +1.5 → 3 * 100 = 300, plus padding
+export const CANVAS_H = ROW_HEIGHT * 4 + 80;
 
 // ─── Node Icons (unique per node) ───────────────────────
 
@@ -109,7 +109,7 @@ export const NODE_TOOLTIPS: Record<string, NodeTooltip> = {
   gate1:   { title: "G1: Identity",      description: "On-chain read: checks ERC-8004 IdentityRegistry for agent registration" },
   gate2:   { title: "G2: Human",         description: "On-chain read: verifies World ID human bond via ValidationRegistry" },
   gate3:   { title: "G3: KYC",           description: "Confidential HTTP: calls Stripe Identity API inside TEE enclave" },
-  gate4:   { title: "G4: Credit",        description: "Confidential HTTP: calls Plaid API inside TEE enclave for credit scoring" },
+  gate4:   { title: "G4: Credit (TEE)",   description: "Credit score computed inside TEE enclave via Plaid — returns attested score, verified on-chain" },
   don:     { title: "DON Consensus",     description: "Decentralized Oracle Network: multi-node consensus on verification report" },
   ace:     { title: "ACE Pipeline",      description: "On-chain re-validation — Extractor + TieredPolicy with 8 checks. Click to expand." },
   result:  { title: "Result",            description: "Final access decision: granted with tier level, or denied with refund" },
@@ -168,43 +168,66 @@ export function straightPath(from: { x: number; y: number }, to: { x: number; y:
 
 export interface GroupZone {
   label: string;
+  subtitle?: string;
   group: NodeGroup;
   x: number;
   y: number;
   w: number;
   h: number;
+  tee?: boolean;
 }
 
 export function computeGroupZones(): GroupZone[] {
-  const pad = 18;
   const hs = NODE_SIZE / 2;
 
   // Entry group: agent through cre (cols 0-3)
-  const entryLeft = nodeCenter(NODE_LAYOUT.agent).x - hs - pad;
-  const entryRight = nodeCenter(NODE_LAYOUT.cre).x + hs + pad;
-  const entryY = centerY - hs - pad;
-  const entryH = NODE_SIZE + pad * 2;
+  const ePad = 22;
+  const entryLeft = nodeCenter(NODE_LAYOUT.agent).x - hs - ePad;
+  const entryRight = nodeCenter(NODE_LAYOUT.cre).x + hs + ePad;
+  const entryY = centerY - hs - ePad;
+  const entryH = NODE_SIZE + ePad * 2;
+
+  // Vertical gate groups get more padding for breathing room
+  const vPad = 28;
 
   // On-chain group: gate1 + gate2
   const g1 = nodeCenter(NODE_LAYOUT.gate1);
   const g2 = nodeCenter(NODE_LAYOUT.gate2);
-  const onchainLeft = g1.x - hs - pad;
-  const onchainRight = g1.x + hs + pad;
-  const onchainTop = g1.y - hs - pad;
-  const onchainBottom = g2.y + hs + pad;
+  const onchainLeft = g1.x - hs - vPad;
+  const onchainRight = g1.x + hs + vPad;
+  const onchainTop = g1.y - hs - vPad;
+  const onchainBottom = g2.y + hs + vPad;
 
-  // HTTP group: gate3 + gate4
+  // HTTP/TEE group: gate3 + gate4
   const g3 = nodeCenter(NODE_LAYOUT.gate3);
   const g4 = nodeCenter(NODE_LAYOUT.gate4);
-  const httpLeft = g3.x - hs - pad;
-  const httpRight = g3.x + hs + pad;
-  const httpTop = g3.y - hs - pad;
-  const httpBottom = g4.y + hs + pad;
+  const httpLeft = g3.x - hs - vPad;
+  const httpRight = g3.x + hs + vPad;
+  const httpTop = g3.y - hs - vPad;
+  const httpBottom = g4.y + hs + vPad;
+
+  // Single-node groups
+  const sPad = 22;
+  const donC = nodeCenter(NODE_LAYOUT.don);
+  const aceC = nodeCenter(NODE_LAYOUT.ace);
+  const resC = nodeCenter(NODE_LAYOUT.result);
 
   return [
-    { label: "ENTRY", group: "entry", x: entryLeft, y: entryY, w: entryRight - entryLeft, h: entryH },
-    { label: "ON-CHAIN", group: "onchain", x: onchainLeft, y: onchainTop, w: onchainRight - onchainLeft, h: onchainBottom - onchainTop },
-    { label: "CONF. HTTP", group: "http", x: httpLeft, y: httpTop, w: httpRight - httpLeft, h: httpBottom - httpTop },
+    { label: "ENTRY", subtitle: "Request Pipeline", group: "entry",
+      x: entryLeft, y: entryY, w: entryRight - entryLeft, h: entryH },
+    { label: "ON-CHAIN", subtitle: "EVM State Read", group: "onchain",
+      x: onchainLeft, y: onchainTop, w: onchainRight - onchainLeft, h: onchainBottom - onchainTop },
+    { label: "TEE ENCLAVE", subtitle: "Confidential HTTP", group: "http", tee: true,
+      x: httpLeft, y: httpTop, w: httpRight - httpLeft, h: httpBottom - httpTop },
+    { label: "CONSENSUS", subtitle: "Oracle Network", group: "consensus",
+      x: donC.x - hs - sPad, y: donC.y - hs - sPad,
+      w: NODE_SIZE + sPad * 2, h: NODE_SIZE + sPad * 2 },
+    { label: "POLICY", subtitle: "ACE Pipeline", group: "policy",
+      x: aceC.x - hs - sPad, y: aceC.y - hs - sPad,
+      w: NODE_SIZE + sPad * 2, h: NODE_SIZE + sPad * 2 },
+    { label: "RESULT", subtitle: "Access Decision", group: "result",
+      x: resC.x - hs - sPad, y: resC.y - hs - sPad,
+      w: NODE_SIZE + sPad * 2, h: NODE_SIZE + sPad * 2 },
   ];
 }
 
