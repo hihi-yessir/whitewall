@@ -5,7 +5,6 @@ import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import type { FeedStats } from "./types";
 
-/** Animated number that eases from previous value to current */
 function AnimatedNumber({ value, color }: { value: number | string; color: string }) {
   const isString = typeof value === "string";
   const numValue = isString ? parseFloat(value) || 0 : value;
@@ -24,7 +23,6 @@ function AnimatedNumber({ value, color }: { value: number | string; color: strin
     function tick(now: number) {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
-      // ease-out quad
       const eased = 1 - (1 - progress) * (1 - progress);
       const current = from + (to - from) * eased;
       setDisplayed(current);
@@ -61,53 +59,76 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
 
   const approvalRate = stats.total > 0 ? Math.round((stats.granted / stats.total) * 100) : 0;
 
-  const statItems: { value: number | string; color: string; label: string }[] = [
-    { value: stats.total, color: t.ink, label: "total" },
-    { value: stats.granted, color: t.green, label: "approved" },
-    { value: stats.denied, color: t.red, label: "denied" },
-    { value: stats.uniqueAgents, color: t.blue, label: "agents" },
-    { value: stats.teeVerified, color: "#f59e0b", label: "TEE" },
-    { value: `${approvalRate}%`, color: t.green, label: "rate" },
+  const statItems: { value: number | string; color: string; label: string; key: string }[] = [
+    { value: stats.total, color: t.ink, label: "total", key: "total" },
+    { value: stats.granted, color: t.green, label: "approved", key: "approved" },
+    { value: stats.denied, color: t.red, label: "denied", key: "denied" },
+    { value: stats.uniqueAgents, color: t.blue, label: "agents", key: "agents" },
+    { value: stats.teeVerified, color: "#f59e0b", label: "TEE", key: "tee" },
+    { value: `${approvalRate}%`, color: t.green, label: "rate", key: "rate" },
   ];
 
   return (
     <div style={{
-      padding: mobile ? "10px 12px" : "12px 0",
-      display: "flex", flexDirection: "column", gap: 8,
+      padding: mobile ? "12px 4px" : "16px 0",
+      display: "flex", flexDirection: "column", gap: 10,
     }}>
-      {/* Live Registry header */}
+      {/* Row 1: Live Registry title + stat pills */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        paddingBottom: 6, borderBottom: `1px solid ${t.cardBorder}15`,
-      }}>
-        <span style={{
-          width: 7, height: 7, borderRadius: "50%",
-          background: t.green, animation: "demoPulse 2s ease-in-out infinite",
-          flexShrink: 0,
-        }} />
-        <span style={{
-          fontSize: 11, fontWeight: 800, letterSpacing: 2,
-          textTransform: "uppercase", color: t.inkMuted,
-        }}>
-          Live Registry
-        </span>
-        <span style={{
-          fontSize: 10, color: `${t.inkMuted}80`, fontWeight: 500,
-          marginLeft: "auto",
-        }}>
-          {stats.total > 0 ? `${stats.total} license plates issued` : "Waiting for first registration..."}
-        </span>
-      </div>
-
-      <div style={{
-        display: "flex", alignItems: "center", gap: mobile ? 8 : 16,
+        display: "flex", alignItems: "center", gap: 10,
         flexWrap: "wrap",
       }}>
-        {/* Search input */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          marginRight: mobile ? 0 : 8,
+        }}>
+          <span style={{
+            width: 6, height: 6, borderRadius: "50%",
+            background: t.green, animation: "demoPulse 2s ease-in-out infinite",
+            flexShrink: 0,
+          }} />
+          <span style={{
+            fontSize: 11, fontWeight: 800, letterSpacing: 1.5,
+            textTransform: "uppercase", color: t.inkMuted,
+            whiteSpace: "nowrap",
+          }}>
+            Live Registry
+          </span>
+        </div>
+
+        {/* Stat pills inline */}
+        <div style={{
+          display: "flex", alignItems: "center",
+          gap: mobile ? 6 : 10,
+          flexWrap: "wrap",
+          flex: 1,
+        }}>
+          {statItems.map((s) => (
+            <span key={s.key} style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              fontSize: 11, color: t.inkMuted,
+            }}>
+              <span style={{
+                width: 5, height: 5, borderRadius: "50%",
+                background: s.color, opacity: 0.7, flexShrink: 0,
+              }} />
+              <AnimatedNumber value={s.value} color={s.color} />
+              {!mobile && (
+                <span style={{ fontSize: 10, opacity: 0.7 }}>{s.label}</span>
+              )}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Row 2: Search */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+      }}>
         <div style={{
           position: "relative",
-          width: mobile ? "100%" : 300,
-          flexShrink: 0,
+          flex: 1,
+          maxWidth: mobile ? "100%" : 320,
         }}>
           <span style={{
             position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
@@ -120,62 +141,47 @@ export function FeedToolbar({ stats, searchValue, onSearchChange, onSearchSubmit
             onKeyDown={(e) => { if (e.key === "Enter") onSearchSubmit(); }}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            placeholder="Search by owner 0x..."
+            placeholder="Search by owner 0x... or agent #id"
             style={{
-              width: "100%", padding: "8px 12px 8px 32px",
+              width: "100%", padding: "7px 12px 7px 30px",
               borderRadius: 8,
-              border: `1.5px solid ${focused ? t.blue : t.cardBorder}`,
-              background: `${t.card}CC`,
-              backdropFilter: "blur(8px)",
-              color: t.ink, fontSize: 13,
+              border: `1.5px solid ${focused ? t.blue : `${t.cardBorder}80`}`,
+              background: `${t.codeBg}80`,
+              color: t.ink, fontSize: 12,
               fontFamily: "'SF Mono','Fira Code',monospace",
               outline: "none", transition: "border-color .2s",
             }}
           />
         </div>
 
-        {/* Stat pills — animated */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: mobile ? 8 : 12,
-          fontSize: 12, fontWeight: 600, flexWrap: "wrap",
-        }}>
-          {statItems.map((s) => (
-            <span key={s.label} style={{ display: "flex", alignItems: "center", gap: 4, color: t.inkMuted }}>
-              <span style={{
-                width: 7, height: 7, borderRadius: "50%",
-                background: s.color, opacity: 0.8, flexShrink: 0,
-              }} />
-              <AnimatedNumber value={s.value} color={s.color} />
-              {!mobile && <span>{s.label}</span>}
+        {/* Filter chip inline with search */}
+        {isFiltering && (
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            padding: "5px 8px", borderRadius: 6,
+            background: `${t.blue}10`, border: `1px solid ${t.blue}20`,
+            fontSize: 10, color: t.blue, flexShrink: 0,
+          }}>
+            <span style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
+              {searchValue.startsWith("0x")
+                ? `${searchValue.slice(0, 6)}...${searchValue.slice(-4)}`
+                : `#${searchValue.replace(/^#/, "")}`
+              }
             </span>
-          ))}
-        </div>
+            <button
+              onClick={onClearSearch}
+              style={{
+                background: "none", border: "none", color: t.blue,
+                cursor: "pointer", fontSize: 14, fontWeight: 700,
+                padding: "4px 6px", opacity: 0.7, lineHeight: 1,
+                minHeight: 28, minWidth: 28,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+              title="Clear filter"
+            >{"\u00D7"}</button>
+          </div>
+        )}
       </div>
-
-      {/* Active filter chip */}
-      {isFiltering && (
-        <div style={{
-          display: "inline-flex", alignItems: "center", gap: 8,
-          padding: "5px 10px", borderRadius: 6,
-          background: `${t.blue}12`, border: `1px solid ${t.blue}25`,
-          fontSize: 11, color: t.blue, alignSelf: "flex-start",
-        }}>
-          <span style={{ fontWeight: 600 }}>Owner:</span>
-          <span style={{ fontFamily: "'SF Mono','Fira Code',monospace" }}>
-            {searchValue.slice(0, 6)}...{searchValue.slice(-4)}
-          </span>
-          <button
-            onClick={onClearSearch}
-            style={{
-              background: "none", border: "none", color: t.blue,
-              cursor: "pointer", fontSize: 14, fontWeight: 700,
-              padding: "8px 10px", opacity: 0.7, lineHeight: 1,
-              minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-            title="Clear filter"
-          >{"\u00D7"}</button>
-        </div>
-      )}
     </div>
   );
 }

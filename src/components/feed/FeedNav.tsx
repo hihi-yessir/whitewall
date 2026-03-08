@@ -111,20 +111,20 @@ export function FeedNav({ onAdminReset }: { onAdminReset?: () => void }) {
   return (
     <nav style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: mobile ? "12px 16px" : "14px 32px",
+      padding: mobile ? "8px 10px" : "14px 32px",
       borderBottom: `1px solid ${t.cardBorder}40`,
       background: `${t.bg}B0`, backdropFilter: "blur(12px)",
       position: "sticky", top: 0, zIndex: 20,
     }}>
       {/* Left: logo + label */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: mobile ? 10 : 12 }}>
         <a href="/" style={{
           display: "flex", alignItems: "center", gap: 6,
           textDecoration: "none", color: t.ink,
         }}>
           <div style={{ display: "flex", gap: 2 }}>
             {[0, 1, 2].map((i) => (
-              <div key={i} style={{ width: 4, height: 22, borderRadius: 1, background: t.ink, opacity: t.logoDots[i], transition: "background .4s" }} />
+              <div key={i} style={{ width: 4, height: mobile ? 16 : 22, borderRadius: 1, background: t.ink, opacity: t.logoDots[i], transition: "background .4s" }} />
             ))}
           </div>
           {!mobile && <span style={{ fontWeight: 900, fontSize: 16, letterSpacing: 1, textTransform: "uppercase" }}>Whitewall</span>}
@@ -133,11 +133,14 @@ export function FeedNav({ onAdminReset }: { onAdminReset?: () => void }) {
           <button
             onClick={handleBadgeClick}
             style={{
-              fontSize: 10, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
-              color: isAdmin ? t.red : t.blue, padding: "6px 10px", borderRadius: 4,
-              minHeight: 44, display: "flex", alignItems: "center",
-              background: isAdmin ? `${t.red}15` : `${t.blue}15`,
-              border: `1px solid ${isAdmin ? `${t.red}30` : `${t.blue}30`}`,
+              fontSize: mobile ? 9 : 11, fontWeight: 700, letterSpacing: mobile ? 0.5 : 1, textTransform: "uppercase",
+              color: isAdmin ? t.red : t.blue,
+              padding: mobile ? "0 6px" : "4px 10px", borderRadius: mobile ? 6 : 4,
+              height: mobile ? 30 : "auto",
+              lineHeight: mobile ? "30px" : "20px",
+              display: "inline-flex", alignItems: "center",
+              background: isAdmin ? `${t.red}12` : `${t.blue}12`,
+              border: `1px solid ${isAdmin ? `${t.red}25` : `${t.blue}25`}`,
               cursor: "pointer",
               transition: "all .2s",
             }}
@@ -205,24 +208,31 @@ export function FeedNav({ onAdminReset }: { onAdminReset?: () => void }) {
       </div>
 
       {/* Right: nav links + theme toggle */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <a href="/demo" style={{
-          fontSize: 13, fontWeight: 600, color: t.inkMuted,
-          textDecoration: "none", transition: "color .2s",
-        }}>
-          Demo
-        </a>
-        <a href="https://github.com/hihi-yessir/whitewall-os" target="_blank" rel="noopener noreferrer" style={{
-          fontSize: 13, fontWeight: 600, color: t.inkMuted,
-          textDecoration: "none", transition: "color .2s",
-        }}>
-          GitHub
-        </a>
+      <div style={{ display: "flex", alignItems: "center", gap: mobile ? 6 : 12 }}>
+        {!mobile && (
+          <>
+            <a href="/demo" style={{
+              fontSize: 13, fontWeight: 600, color: t.inkMuted,
+              textDecoration: "none", transition: "color .2s",
+            }}>
+              Demo
+            </a>
+            <a href="https://github.com/hihi-yessir/whitewall-os" target="_blank" rel="noopener noreferrer" style={{
+              fontSize: 13, fontWeight: 600, color: t.inkMuted,
+              textDecoration: "none", transition: "color .2s",
+            }}>
+              GitHub
+            </a>
+          </>
+        )}
         <a href="/tryout" style={{
-          fontSize: 12, fontWeight: 700, color: t.ink,
-          textDecoration: "none", letterSpacing: 1, textTransform: "uppercase",
-          padding: "4px 10px", borderRadius: 4,
-          background: `${t.blue}15`, border: `1px solid ${t.blue}30`,
+          fontSize: mobile ? 9 : 11, fontWeight: 700, color: t.ink,
+          textDecoration: "none", letterSpacing: mobile ? 0.5 : 1, textTransform: "uppercase",
+          padding: mobile ? "0 6px" : "4px 10px", borderRadius: mobile ? 6 : 4,
+          height: mobile ? 30 : "auto",
+          lineHeight: mobile ? "30px" : "20px",
+          display: "inline-flex", alignItems: "center",
+          background: `${t.blue}12`, border: `1px solid ${t.blue}25`,
           transition: "all .2s",
         }}>
           Register {"\u2192"}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useContext, createContext } from "react";
+import { useIsMobile } from "./hooks";
 
 // ── Theme system ──
 
@@ -60,12 +61,14 @@ export const ThemeCtx = createContext<ThemeContextValue>({
 
 export function ThemeToggle() {
   const { mode, toggle, t } = useContext(ThemeCtx);
+  const mobile = useIsMobile();
   const [h, setH] = useState(false);
+  const size = mobile ? 30 : 44;
   return (
     <button onClick={toggle} onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
-      style={{ width: 44, height: 44, borderRadius: 8, border: `1.5px solid ${h ? t.blue : t.cardBorder}`,
+      style={{ width: size, height: size, borderRadius: mobile ? 6 : 8, border: `1.5px solid ${h ? t.blue : t.cardBorder}`,
         background: "transparent", cursor: "pointer", display: "flex", alignItems: "center",
-        justifyContent: "center", transition: "all .2s", fontSize: 16, color: t.ink }}>
+        justifyContent: "center", transition: "all .2s", fontSize: mobile ? 13 : 16, color: t.ink }}>
       {mode === "dark" ? "\u2600" : "\u263E"}
     </button>
   );

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useContext } from "react";
+import { useState, useEffect, useRef, useCallback, useContext, useMemo } from "react";
 import { ThemeCtx } from "../shared/theme";
 import { useIsMobile } from "../shared/hooks";
 import { FeedNav } from "./FeedNav";
 import { FeedToolbar } from "./FeedToolbar";
-import { FeedListItem, FeedListItemSkeleton } from "./FeedListItem";
+import { FeedAgentCard, FeedAgentCardSkeleton, groupByAgent } from "./FeedAgentCard";
 import { FeedDetail } from "./FeedDetail";
 import { ActivityTimeline } from "./ActivityTimeline";
 import type { Generation, FeedStats, FeedResponse } from "./types";
@@ -21,12 +21,12 @@ export default function FeedPage() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
+  const [agentIdFilter, setAgentIdFilter] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [selectedEntry, setSelectedEntry] = useState<Generation | null>(null);
   const [newEntryIds, setNewEntryIds] = useState<Set<string>>(new Set());
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Mark an entry as "new" with auto-clear after 3s
   const markEntryNew = useCallback((id: string) => {
     setNewEntryIds((prev) => new Set(prev).add(id));
     setTimeout(() => {
@@ -41,21 +41,31 @@ export default function FeedPage() {
   const handleOwnerClick = useCallback((address: string) => {
     setSearchInput(address);
     setOwnerFilter(address);
+    setAgentIdFilter(null);
     setSelectedEntry(null);
   }, []);
 
   const handleSearchSubmit = useCallback(() => {
-    const trimmed = searchInput.trim();
-    if (trimmed && trimmed.startsWith("0x")) {
-      setOwnerFilter(trimmed);
-    } else if (!trimmed) {
+    const trimmed = searchInput.trim().replace(/^#/, "");
+    if (!trimmed) {
       setOwnerFilter(null);
+      setAgentIdFilter(null);
+    } else if (trimmed.startsWith("0x")) {
+      setOwnerFilter(trimmed);
+      setAgentIdFilter(null);
+    } else if (/^\d+$/.test(trimmed)) {
+      setAgentIdFilter(trimmed);
+      setOwnerFilter(null);
+    } else {
+      setOwnerFilter(null);
+      setAgentIdFilter(trimmed);
     }
   }, [searchInput]);
 
   const handleClearSearch = useCallback(() => {
     setSearchInput("");
     setOwnerFilter(null);
+    setAgentIdFilter(null);
   }, []);
 
   // Initial load + reload when owner filter changes
@@ -172,6 +182,12 @@ export default function FeedPage() {
   }, []);
 
   const detailOpen = selectedEntry !== null;
+  const isFiltering = ownerFilter !== null || agentIdFilter !== null;
+  const filteredEntries = useMemo(() => {
+    if (!agentIdFilter) return entries;
+    return entries.filter((e) => e.agentId === agentIdFilter);
+  }, [entries, agentIdFilter]);
+  const agentGroups = useMemo(() => groupByAgent(filteredEntries), [filteredEntries]);
 
   return (
     <>
@@ -187,22 +203,22 @@ export default function FeedPage() {
         <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
           <FeedNav onAdminReset={handleAdminReset} />
 
-          {/* Main content area — frosted panel matching demo */}
+          {/* Main content area — frosted panel */}
           <div style={{
             flex: 1, display: "flex", flexDirection: "column",
-            margin: mobile ? 8 : 16,
-            background: `${t.card}B0`,
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            border: `1px solid ${t.cardBorder}40`,
-            borderRadius: 14,
+            margin: mobile ? "8px 4px" : "12px 16px",
+            background: `${t.card}A0`,
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+            border: `1px solid ${t.cardBorder}30`,
+            borderRadius: mobile ? 12 : 14,
             overflow: "hidden",
             transition: "background .4s, border-color .4s",
           }}>
-            {/* Toolbar inside the frosted panel */}
+            {/* Toolbar */}
             <div style={{
               padding: mobile ? "0 8px" : "0 20px",
-              borderBottom: `1px solid ${t.cardBorder}30`,
+              borderBottom: `1px solid ${t.cardBorder}20`,
             }}>
               <FeedToolbar
                 stats={stats}
@@ -210,19 +226,18 @@ export default function FeedPage() {
                 onSearchChange={setSearchInput}
                 onSearchSubmit={handleSearchSubmit}
                 onClearSearch={handleClearSearch}
-                isFiltering={ownerFilter !== null}
+                isFiltering={isFiltering}
               />
             </div>
 
             {/* Activity timeline */}
             <ActivityTimeline />
 
-            {/* List + detail flex container */}
+            {/* Agent list + detail */}
             <div style={{
               flex: 1, display: "flex", minHeight: 0,
               position: "relative",
             }}>
-              {/* List area */}
               <div style={{
                 flex: 1,
                 maxWidth: !mobile && detailOpen ? "calc(100% - 400px)" : "100%",
@@ -230,55 +245,74 @@ export default function FeedPage() {
                 overflowY: "auto",
                 minHeight: 0,
               }}>
+                {/* Section label */}
+                {!loading && entries.length > 0 && (
+                  <div style={{
+                    padding: mobile ? "10px 12px 2px" : "14px 20px 2px",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    <span style={{
+                      fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
+                      textTransform: "uppercase", color: `${t.inkMuted}70`,
+                    }}>
+                      Registered Agents
+                    </span>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, color: `${t.inkMuted}50`,
+                    }}>
+                      {agentGroups.length}
+                    </span>
+                  </div>
+                )}
+
                 {loading ? (
-                  <div>
-                    {Array.from({ length: 8 }).map((_, i) => (
-                      <FeedListItemSkeleton key={i} />
+                  <div style={{ paddingTop: 4 }}>
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <FeedAgentCardSkeleton key={i} />
                     ))}
                   </div>
                 ) : entries.length === 0 ? (
                   <div style={{
                     textAlign: "center", padding: "80px 20px",
-                    color: t.inkMuted, fontSize: 14,
+                    color: t.inkMuted, fontSize: 13,
                   }}>
-                    <div style={{ fontSize: 32, opacity: 0.3, marginBottom: 12 }}>{"\u2205"}</div>
+                    <div style={{ fontSize: 28, opacity: 0.2, marginBottom: 10 }}>{"\u2205"}</div>
                     {ownerFilter
                       ? "No generations found for this owner."
-                      : <>No generations yet. Be the first — try the{" "}<a href="/demo" style={{ color: t.blue, textDecoration: "none", fontWeight: 600 }}>demo</a>.</>
+                      : <>No agents registered yet.{" "}<a href="/tryout" style={{ color: t.blue, textDecoration: "none", fontWeight: 600 }}>Register yours</a>.</>
                     }
                   </div>
                 ) : (
-                  <div>
-                    {entries.map((entry) => (
-                      <FeedListItem
-                        key={entry.id}
-                        entry={entry}
-                        isSelected={selectedEntry?.id === entry.id}
-                        isNew={newEntryIds.has(entry.id)}
-                        onSelect={() => setSelectedEntry(entry)}
+                  <div style={{ paddingBottom: 8 }}>
+                    {agentGroups.map((group) => (
+                      <FeedAgentCard
+                        key={group.agentId}
+                        group={group}
+                        isNew={group.entries.some((e) => newEntryIds.has(e.id))}
+                        onSelectEntry={setSelectedEntry}
                         onOwnerClick={handleOwnerClick}
                       />
                     ))}
                   </div>
                 )}
 
-                {/* Infinite scroll sentinel */}
                 <div ref={sentinelRef} style={{ height: 1 }} />
 
                 {loadingMore && (
                   <div>
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <FeedListItemSkeleton key={`more-${i}`} />
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <FeedAgentCardSkeleton key={`more-${i}`} />
                     ))}
                   </div>
                 )}
 
                 {!hasMore && entries.length > 0 && (
                   <div style={{
-                    textAlign: "center", padding: "24px 0 48px",
-                    fontSize: 11, color: t.inkMuted, letterSpacing: 1, textTransform: "uppercase",
+                    textAlign: "center", padding: "20px 0 40px",
+                    fontSize: 10, color: `${t.inkMuted}60`,
+                    letterSpacing: 1, textTransform: "uppercase",
                   }}>
-                    End of feed
+                    End of registry
                   </div>
                 )}
               </div>

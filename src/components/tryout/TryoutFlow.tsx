@@ -698,6 +698,8 @@ export function TryoutFlow({
     step === "done"
   );
 
+  const prevTierRef = useRef(tierData.effectiveTier || 0);
+
   useEffect(() => {
     if (!shouldPoll || !agent.id) return;
     let cancelled = false;
@@ -709,6 +711,9 @@ export function TryoutFlow({
         if (!res.ok || cancelled) return;
 
         const chain = data.onChain;
+        const prevTier = prevTierRef.current;
+        const newTier = chain.effectiveTier;
+
         dispatch({
           type: "SET_TIER_DATA",
           tierData: {
@@ -717,15 +722,32 @@ export function TryoutFlow({
             kycVerified: chain.kycVerified,
             hasCreditScore: chain.hasCreditScore,
             creditScore: chain.creditScore,
-            effectiveTier: chain.effectiveTier,
+            effectiveTier: newTier,
             kycData: chain.kycData,
             creditData: chain.creditData,
             creditTxHash: chain.creditTxHash,
           },
         });
 
-        if (step === "credit" && state.creditStatus === "done" && chain.effectiveTier >= 3 && !cancelled) {
-          addLog("TIER", `Tier ${chain.effectiveTier} achieved!`, "pass");
+        // Log activity when CRE completes KYC verification (T2→T3)
+        if (prevTier < 3 && newTier >= 3 && chain.kycVerified) {
+          addLog("CRE", "KYC verified on-chain by CRE workflow", "pass");
+          logActivity("kyc", { detail: "CRE confirmed KYC — Tier 3 achieved" });
+        }
+
+        // Log activity when CRE completes credit verification (T3→T4)
+        if (prevTier < 4 && newTier >= 4 && chain.hasCreditScore) {
+          addLog("CRE", `Credit score ${chain.creditScore} verified on-chain by TEE enclave`, "pass");
+          logActivity("credit", {
+            txHash: chain.creditTxHash || undefined,
+            detail: `TEE-attested credit score: ${chain.creditScore} — Tier 4 achieved`,
+          });
+        }
+
+        prevTierRef.current = newTier;
+
+        if (step === "credit" && state.creditStatus === "done" && newTier >= 3 && !cancelled) {
+          addLog("TIER", `Tier ${newTier} achieved!`, "pass");
           setStep("video-prompt");
         }
       } catch {
@@ -736,7 +758,7 @@ export function TryoutFlow({
     poll();
     const interval = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [shouldPoll, step, agent.id, state.creditStatus, dispatch, addLog, setStep]);
+  }, [shouldPoll, step, agent.id, state.creditStatus, dispatch, addLog, setStep, logActivity]);
 
   /* ═══════════════════════════════════════════════════════
      Phase transitions
