@@ -139,6 +139,6 @@ whitewall/
 
 | Repository | Role |
 |:-----------|:-----|
-| [**Verified-Agent-Hub**](https://github.com/hihi-yessir/Verified-Agent-Hub) | Smart contracts, ACE policies, validators, SDK |
+| [**whitewall-os**](https://github.com/hihi-yessir/whitewall-os) | Smart contracts, ACE policies, validators, SDK |
 | [**whitewall-cre**](https://github.com/hihi-yessir/whitewall-cre) | CRE workflows (access, KYC, credit) |
 | [**x402-auth-gateway**](https://github.com/hihi-yessir/x402-auth-gateway) | Payment-gated proxy |
