@@ -25,16 +25,13 @@ const TYPE_META: Record<string, { label: string; color: string; icon: string }> 
   generation: { label: "Generated", color: "#ec4899", icon: "\u25CF" },
 };
 
-/** Shared tick — one interval drives all useTimeAgo instances */
 let tickListeners = new Set<() => void>();
 let tickInterval: ReturnType<typeof setInterval> | null = null;
 
 function subscribeTick(cb: () => void) {
   tickListeners.add(cb);
   if (!tickInterval) {
-    tickInterval = setInterval(() => {
-      tickListeners.forEach((fn) => fn());
-    }, 1000);
+    tickInterval = setInterval(() => tickListeners.forEach((fn) => fn()), 1000);
   }
   return () => {
     tickListeners.delete(cb);
@@ -69,63 +66,57 @@ function ActivityPill({ ev, isNew }: { ev: ActivityEvent; isNew: boolean }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        padding: "5px 8px",
-        borderRadius: 6,
-        background: `${meta.color}08`,
-        border: `1px solid ${meta.color}${isNew ? "50" : "20"}`,
+        gap: 5,
+        padding: "4px 7px",
+        borderRadius: 5,
+        background: `${meta.color}06`,
+        border: `1px solid ${meta.color}${isNew ? "40" : "15"}`,
         flexShrink: 0,
-        minWidth: 0,
         animation: isNew ? "activitySlideIn .4s ease-out" : undefined,
-        boxShadow: isNew ? `0 0 12px ${meta.color}25` : "none",
+        boxShadow: isNew ? `0 0 10px ${meta.color}20` : "none",
         transition: "border-color .6s, box-shadow .6s",
       }}
     >
-      {/* Type icon */}
       <span style={{
-        width: 18, height: 18, borderRadius: 4,
+        width: 14, height: 14, borderRadius: 3,
         display: "flex", alignItems: "center", justifyContent: "center",
-        background: `${meta.color}15`,
+        background: `${meta.color}12`,
         color: meta.color,
-        fontSize: 10, fontWeight: 900,
+        fontSize: 8, fontWeight: 900,
         fontFamily: "'SF Mono','Fira Code',monospace",
         flexShrink: 0,
       }}>
         {meta.icon}
       </span>
-
-      {/* Content */}
       <div style={{ minWidth: 0 }}>
         <div style={{
-          fontSize: 9, fontWeight: 700,
+          fontSize: 8, fontWeight: 700,
           color: meta.color,
           whiteSpace: "nowrap",
+          lineHeight: "12px",
         }}>
           {meta.label}
         </div>
         <div style={{
-          fontSize: 8, color: t.inkMuted,
+          fontSize: 7, color: t.inkMuted,
           fontFamily: "'SF Mono','Fira Code',monospace",
-          display: "flex", alignItems: "center", gap: 4,
+          display: "flex", alignItems: "center", gap: 3,
+          lineHeight: "10px",
         }}>
-          <span style={{ color: t.blue, fontWeight: 700 }}>
-            #{ev.agentId}
-          </span>
-          <span style={{ opacity: 0.5 }}>{ago}</span>
+          <span style={{ color: t.blue, fontWeight: 700 }}>#{ev.agentId}</span>
+          <span style={{ opacity: 0.4 }}>{ago}</span>
           {ev.txHash && (
             <a
               href={`${BASESCAN}/tx/${ev.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                color: t.blue,
-                textDecoration: "none",
-                opacity: 0.6,
-                fontSize: 8,
+                color: t.blue, textDecoration: "none",
+                opacity: 0.5, fontSize: 7,
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              tx {"\u2197"}
+              tx{"\u2197"}
             </a>
           )}
         </div>
@@ -134,10 +125,10 @@ function ActivityPill({ ev, isNew }: { ev: ActivityEvent; isNew: boolean }) {
   );
 }
 
-/** Sparkline — 12 bars for the last hour (5 min buckets) */
+/** Sparkline — 24 bars for the last 24h (1h buckets) */
 function Sparkline({ events, color }: { events: ActivityEvent[]; color: string }) {
-  const bucketCount = 12;
-  const bucketMs = 5 * 60 * 1000; // 5 minutes
+  const bucketCount = 24;
+  const bucketMs = 60 * 60 * 1000; // 1 hour
   const now = Date.now();
   const buckets = new Array(bucketCount).fill(0);
 
@@ -149,28 +140,38 @@ function Sparkline({ events, color }: { events: ActivityEvent[]; color: string }
   }
 
   const max = Math.max(...buckets, 1);
-  const w = 60;
-  const h = 16;
-  const barW = (w - (bucketCount - 1)) / bucketCount;
+  const w = 72;
+  const h = 14;
+  const gap = 1;
+  const barW = (w - (bucketCount - 1) * gap) / bucketCount;
 
   return (
-    <svg width={w} height={h} style={{ flexShrink: 0, opacity: 0.7 }}>
-      {buckets.map((count, i) => {
-        const barH = Math.max((count / max) * h, count > 0 ? 2 : 0.5);
-        return (
-          <rect
-            key={i}
-            x={i * (barW + 1)}
-            y={h - barH}
-            width={barW}
-            height={barH}
-            rx={1}
-            fill={count > 0 ? color : `${color}20`}
-            style={{ transition: "height .4s ease, y .4s ease" }}
-          />
-        );
-      })}
-    </svg>
+    <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+      <svg width={w} height={h} style={{ opacity: 0.6 }}>
+        {buckets.map((count, i) => {
+          const barH = Math.max((count / max) * h, count > 0 ? 1.5 : 0.5);
+          return (
+            <rect
+              key={i}
+              x={i * (barW + gap)}
+              y={h - barH}
+              width={barW}
+              height={barH}
+              rx={0.5}
+              fill={count > 0 ? color : `${color}18`}
+              style={{ transition: "height .4s ease, y .4s ease" }}
+            />
+          );
+        })}
+      </svg>
+      <span style={{
+        fontSize: 7, color: `${color}80`,
+        fontFamily: "'SF Mono','Fira Code',monospace",
+        whiteSpace: "nowrap",
+      }}>
+        24h
+      </span>
+    </div>
   );
 }
 
@@ -183,7 +184,6 @@ export function ActivityTimeline() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
 
-  // Clear "new" highlight after 3 seconds
   const markNew = useCallback((id: string) => {
     setNewIds((prev) => new Set(prev).add(id));
     setTimeout(() => {
@@ -195,12 +195,11 @@ export function ActivityTimeline() {
     }, 3000);
   }, []);
 
-  // Initial load
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const resp = await fetch("/api/activity?limit=30");
+        const resp = await fetch("/api/activity?limit=50");
         if (!resp.ok) return;
         const data = await resp.json();
         if (!cancelled) {
@@ -214,7 +213,6 @@ export function ActivityTimeline() {
     return () => { cancelled = true; };
   }, []);
 
-  // SSE subscription for real-time activity updates
   useEffect(() => {
     if (!initialLoadDone.current) return;
 
@@ -233,7 +231,6 @@ export function ActivityTimeline() {
           });
           markNew(ev.id);
 
-          // Auto-scroll to start on new event
           if (scrollRef.current) {
             scrollRef.current.scrollTo({ left: 0, behavior: "smooth" });
           }
@@ -259,41 +256,41 @@ export function ActivityTimeline() {
 
   return (
     <div style={{
-      padding: mobile ? "8px 8px" : "12px 20px",
-      borderBottom: `1px solid ${t.cardBorder}20`,
+      padding: mobile ? "6px 8px" : "8px 20px",
+      borderBottom: `1px solid ${t.cardBorder}15`,
     }}>
-      {/* Header */}
+      {/* Header + sparkline */}
       <div style={{
         display: "flex", alignItems: "center", gap: 6,
-        marginBottom: 8,
+        marginBottom: 6,
       }}>
         <span style={{
-          width: 5, height: 5, borderRadius: "50%",
+          width: 4, height: 4, borderRadius: "50%",
           background: "#22c55e",
           animation: "demoPulse 2s ease-in-out infinite",
           flexShrink: 0,
         }} />
         <span style={{
-          fontSize: 9, fontWeight: 800, letterSpacing: 1.5,
-          textTransform: "uppercase", color: t.inkMuted,
+          fontSize: 8, fontWeight: 800, letterSpacing: 1.5,
+          textTransform: "uppercase", color: `${t.inkMuted}90`,
         }}>
-          Recent Activity
+          Activity
         </span>
         <Sparkline events={events} color={t.blue} />
       </div>
 
-      {/* Horizontal scrollable timeline */}
+      {/* Horizontal scrollable pills */}
       <div
         ref={scrollRef}
         style={{
           display: "flex",
-          gap: 6,
+          gap: 4,
           overflowX: "auto",
-          paddingBottom: 4,
+          paddingBottom: 2,
           scrollbarWidth: "none",
           WebkitOverflowScrolling: "touch",
-          maskImage: mobile ? "linear-gradient(90deg, transparent 0%, black 2%, black 90%, transparent 100%)" : "none",
-          WebkitMaskImage: mobile ? "linear-gradient(90deg, transparent 0%, black 2%, black 90%, transparent 100%)" : "none",
+          maskImage: "linear-gradient(90deg, black 0%, black 92%, transparent 100%)",
+          WebkitMaskImage: "linear-gradient(90deg, black 0%, black 92%, transparent 100%)",
         } as React.CSSProperties}
       >
         {events.map((ev) => (
@@ -303,7 +300,7 @@ export function ActivityTimeline() {
 
       <style>{`
         @keyframes activitySlideIn {
-          from { opacity: 0; transform: translateX(-20px) scale(0.95); }
+          from { opacity: 0; transform: translateX(-16px) scale(0.96); }
           to { opacity: 1; transform: translateX(0) scale(1); }
         }
       `}</style>

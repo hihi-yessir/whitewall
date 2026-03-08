@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
           tier?: string;
         };
 
-        const tier = gatewayResult.tier || String(onChainTier);
+        const tier = String(Math.max(Number(gatewayResult.tier) || 0, onChainTier));
         const txHash = gatewayResult.txHash || "";
 
         send({ type: "terminal", tag: "x402", message: "Payment verified + settled on-chain", termStatus: "pass" });

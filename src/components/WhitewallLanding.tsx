@@ -13,14 +13,11 @@ function ProblemSection() {
   const mobile = useIsMobile();
   const cards = [
     { num: "01", title: "No Identity",
-      desc: "AI agents transact via x402, but the payment protocol has no identity layer. An agent can pay $0.50 and remain completely anonymous.",
-      icon: "01" },
+      desc: "AI agents transact via x402, but the payment protocol has no identity layer. An agent can pay $0.50 and remain completely anonymous." },
     { num: "02", title: "Sybil Floods",
-      desc: "One person deploys 1,000 agents. Each pays independently. No way to detect they share an operator \u2014 or to hold anyone accountable.",
-      icon: "02" },
+      desc: "One person deploys 1,000 agents. Each pays independently. No way to detect they share an operator \u2014 or to hold anyone accountable." },
     { num: "03", title: "No Trust Layer",
-      desc: "Service providers have no on-chain mechanism to verify who is behind an agent before fulfilling a request. Deepfakes, spam, abuse \u2014 all anonymous.",
-      icon: "03" },
+      desc: "Service providers have no on-chain mechanism to verify who is behind an agent before fulfilling a request. Deepfakes, spam, abuse \u2014 all anonymous." },
   ];
   return (
     <section id="problem" ref={ref as React.RefObject<HTMLElement>}
@@ -46,9 +43,8 @@ function ProblemSection() {
             transition: `all .7s ${0.2 + i * 0.12}s cubic-bezier(.16,1,.3,1)`,
             background: `${t.card}CC`, backdropFilter: "blur(8px)",
             border: `1.5px solid ${t.cardBorder}`, borderRadius: 14, padding: mobile ? 24 : 32 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: t.inkMuted, letterSpacing: 1 }}>{c.num}</span>
-              <span style={{ fontSize: 14, fontWeight: 900, color: t.blue, opacity: 0.5 }}>{c.num}</span>
+            <div style={{ marginBottom: 20 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: t.blue, letterSpacing: 1, opacity: 0.7 }}>{c.num}</span>
             </div>
             <h3 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 10px", letterSpacing: -0.5 }}>{c.title}</h3>
             <p style={{ fontSize: 14, color: t.inkMuted, lineHeight: 1.65, margin: 0 }}>{c.desc}</p>
@@ -68,7 +64,7 @@ function PipelineSection() {
   const steps = [
     { step: "G1", title: "Identity", desc: "EVMClient.read \u2192 IdentityRegistry. Is this agent registered with an ERC-8004 NFT?" },
     { step: "G2", title: "Verification", desc: "EVMClient.read \u2192 WorldIDValidator. Is the owner human-verified via World ID ZK proof?" },
-    { step: "G3", title: "KYC (TEE)", desc: "Confidential HTTP \u2192 Stripe Identity inside TEE enclave. KYC credentials never leave the enclave." },
+    { step: "G3", title: "KYC", desc: "Confidential HTTP \u2192 Stripe Identity via encrypted channel. KYC credentials stay confidential in transit." },
     { step: "G4", title: "Credit (TEE)", desc: "Confidential HTTP \u2192 Plaid inside TEE. Returns attested credit score, verified on-chain." },
     { step: "DON", title: "Consensus", desc: "3/5 DON nodes reach consensus on the verification report. Signed report submitted on-chain." },
     { step: "ACE", title: "Policy", desc: "runPolicy() \u2014 TieredPolicy enforces the final on-chain safety check. Approve or reject." },
@@ -418,10 +414,10 @@ function Footer() {
       </div>
 
       {/* Powered by */}
-      <div style={{ marginTop: 60, paddingTop: 30, borderTop: `1px solid ${t.cardBorder}`, display: "flex", justifyContent: "center", alignItems: "center", gap: mobile ? 16 : 36, flexWrap: "wrap" }}>
-        <span style={{ fontSize: mobile ? 10 : 12, color: t.inkMuted, whiteSpace: "nowrap", fontWeight: 500 }}>Powered by:</span>
+      <div style={{ marginTop: 60, paddingTop: 30, borderTop: `1px solid ${t.cardBorder}`, display: "flex", justifyContent: "center", alignItems: "center", gap: mobile ? 8 : 20, flexWrap: "nowrap", overflowX: "auto" }}>
+        <span style={{ fontSize: mobile ? 9 : 12, color: t.inkMuted, whiteSpace: "nowrap", fontWeight: 500, flexShrink: 0 }}>Powered by:</span>
         {["Chainlink CRE", "Chainlink DON", "Chainlink ACE", "World ID", "x402", "TEE"].map((n) => (
-          <span key={n} style={{ fontSize: mobile ? 9 : 12, color: t.inkMuted, opacity: 0.3, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase" }}>{n}</span>
+          <span key={n} style={{ fontSize: mobile ? 8 : 12, color: t.inkMuted, opacity: 0.3, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}>{n}</span>
         ))}
       </div>
 
@@ -446,10 +442,10 @@ function Footer() {
 function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useContext(ThemeCtx);
   if (!open) return null;
-  const links = [
-    { label: "Protocol", href: "#problem" },
-    { label: "Pipeline", href: "#pipeline" },
-    { label: "Integrate", href: "#sdk" },
+  const actions = [
+    { label: "Live Demo", href: "/demo" },
+    { label: "Get Your License", href: "/tryout" },
+    { label: "Agent Feed", href: "/feed" },
   ];
   return (
     <div style={{
@@ -457,23 +453,12 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
       backdropFilter: "blur(12px)", display: "flex", flexDirection: "column",
       alignItems: "center", justifyContent: "center", gap: 32,
     }} onClick={onClose}>
-      {links.map((l) => (
-        <a key={l.label} href={l.href} onClick={onClose}
+      {actions.map((a) => (
+        <a key={a.label} href={a.href} onClick={onClose}
           style={{ fontSize: 24, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
-          {l.label}
+          {a.label}
         </a>
       ))}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-        <a href="/demo" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
-          Live Demo
-        </a>
-        <a href="/tryout" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
-          Get Your License
-        </a>
-        <a href="/feed" style={{ fontSize: 20, fontWeight: 800, color: t.ink, textDecoration: "none", textTransform: "uppercase", letterSpacing: 2 }}>
-          Agent Feed
-        </a>
-      </div>
     </div>
   );
 }
@@ -521,9 +506,9 @@ export default function WhitewallLanding() {
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <ThemeToggle />
                 <button onClick={() => setMenuOpen(true)} style={{
-                  width: 44, height: 44, borderRadius: 8, border: `1.5px solid ${t.cardBorder}`,
+                  width: 30, height: 30, borderRadius: 6, border: `1.5px solid ${t.cardBorder}`,
                   background: "transparent", cursor: "pointer", display: "flex", alignItems: "center",
-                  justifyContent: "center", color: t.ink, fontSize: 18,
+                  justifyContent: "center", color: t.ink, fontSize: 14,
                 }}>{"\u2630"}</button>
               </div>
             ) : (

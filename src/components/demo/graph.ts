@@ -5,7 +5,7 @@
 
 // ─── Node Groups ─────────────────────────────────────────
 
-export type NodeGroup = "entry" | "onchain" | "http" | "consensus" | "policy" | "result";
+export type NodeGroup = "entry" | "onchain" | "confhttp" | "tee" | "consensus" | "policy" | "result";
 
 export interface NodeLayout {
   col: number;   // 0-based column
@@ -74,8 +74,8 @@ export const NODE_LAYOUT: Record<string, NodeLayout> = {
   cre:     { col: 3, row: 0,    group: "entry" },
   gate1:   { col: 4, row: -1.5, group: "onchain" },
   gate2:   { col: 4, row: -0.5, group: "onchain" },
-  gate3:   { col: 4, row: 0.5,  group: "http" },
-  gate4:   { col: 4, row: 1.5,  group: "http" },
+  gate3:   { col: 4, row: 0.5,  group: "confhttp" },
+  gate4:   { col: 4, row: 1.5,  group: "tee" },
   don:     { col: 5, row: 0,    group: "consensus" },
   ace:     { col: 6, row: 0,    group: "policy" },
   result:  { col: 7, row: 0,    group: "result" },
@@ -108,7 +108,7 @@ export const NODE_TOOLTIPS: Record<string, NodeTooltip> = {
   cre:     { title: "CRE Workflow",      description: "Chainlink CRE orchestrates the full verification workflow off-chain" },
   gate1:   { title: "G1: Identity",      description: "On-chain read: checks ERC-8004 IdentityRegistry for agent registration" },
   gate2:   { title: "G2: Human",         description: "On-chain read: verifies World ID human bond via ValidationRegistry" },
-  gate3:   { title: "G3: KYC",           description: "Confidential HTTP: calls Stripe Identity API inside TEE enclave" },
+  gate3:   { title: "G3: KYC",           description: "Confidential HTTP: calls Stripe Identity API via encrypted channel" },
   gate4:   { title: "G4: Credit (TEE)",   description: "Credit score computed inside TEE enclave via Plaid — returns attested score, verified on-chain" },
   don:     { title: "DON Consensus",     description: "Decentralized Oracle Network: multi-node consensus on verification report" },
   ace:     { title: "ACE Pipeline",      description: "On-chain re-validation — Extractor + TieredPolicy with 8 checks. Click to expand." },
@@ -198,13 +198,19 @@ export function computeGroupZones(): GroupZone[] {
   const onchainTop = g1.y - hs - vPad;
   const onchainBottom = g2.y + hs + vPad;
 
-  // HTTP/TEE group: gate3 + gate4
+  // Confidential HTTP group: gate3 only
   const g3 = nodeCenter(NODE_LAYOUT.gate3);
+  const confhttpLeft = g3.x - hs - vPad;
+  const confhttpRight = g3.x + hs + vPad;
+  const confhttpTop = g3.y - hs - vPad;
+  const confhttpBottom = g3.y + hs + vPad;
+
+  // TEE enclave group: gate4 only
   const g4 = nodeCenter(NODE_LAYOUT.gate4);
-  const httpLeft = g3.x - hs - vPad;
-  const httpRight = g3.x + hs + vPad;
-  const httpTop = g3.y - hs - vPad;
-  const httpBottom = g4.y + hs + vPad;
+  const teeLeft = g4.x - hs - vPad;
+  const teeRight = g4.x + hs + vPad;
+  const teeTop = g4.y - hs - vPad;
+  const teeBottom = g4.y + hs + vPad;
 
   // Single-node groups
   const sPad = 22;
@@ -217,8 +223,10 @@ export function computeGroupZones(): GroupZone[] {
       x: entryLeft, y: entryY, w: entryRight - entryLeft, h: entryH },
     { label: "ON-CHAIN", subtitle: "EVM State Read", group: "onchain",
       x: onchainLeft, y: onchainTop, w: onchainRight - onchainLeft, h: onchainBottom - onchainTop },
-    { label: "TEE ENCLAVE", subtitle: "Confidential HTTP", group: "http", tee: true,
-      x: httpLeft, y: httpTop, w: httpRight - httpLeft, h: httpBottom - httpTop },
+    { label: "CONF. HTTP", subtitle: "Stripe Identity", group: "confhttp",
+      x: confhttpLeft, y: confhttpTop, w: confhttpRight - confhttpLeft, h: confhttpBottom - confhttpTop },
+    { label: "TEE ENCLAVE", subtitle: "Plaid Credit", group: "tee", tee: true,
+      x: teeLeft, y: teeTop, w: teeRight - teeLeft, h: teeBottom - teeTop },
     { label: "CONSENSUS", subtitle: "Oracle Network", group: "consensus",
       x: donC.x - hs - sPad, y: donC.y - hs - sPad,
       w: NODE_SIZE + sPad * 2, h: NODE_SIZE + sPad * 2 },
@@ -275,7 +283,7 @@ export const SCENARIO_OVERVIEWS: Record<string, ScenarioOverview> = {
   "kyc-agent": {
     tier: 3, title: "T3: KYC Verified",
     subtitle: "Stripe Identity via Confidential HTTP",
-    description: "Beyond human verification, this agent's owner has passed KYC through Stripe Identity. The Confidential HTTP path protects sensitive API calls inside TEE enclaves. Unlocks video generation.",
+    description: "Beyond human verification, this agent's owner has passed KYC through Stripe Identity via Confidential HTTP. Sensitive API calls are encrypted end-to-end. Unlocks video generation.",
   },
   "credit-agent": {
     tier: 4, title: "T4: Fully Verified",
@@ -359,7 +367,7 @@ function makeNodeDetails(tier: number): NodeDetails {
     ],
     gate3: hasKyc ? [
       { text: "Confidential HTTP → Stripe", color: "blue" },
-      { text: "TEE enclave active", indent: true, color: "muted" },
+      { text: "Encrypted channel active", indent: true, color: "muted" },
       { text: "Stripe Identity API...", indent: true },
       { text: "identity_verified: true", indent: true, color: "green" },
       { text: "API credentials never exposed", color: "muted" },
