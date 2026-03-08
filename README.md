@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![SDK](https://img.shields.io/npm/v/@whitewall-os/sdk?style=for-the-badge&label=SDK)](https://www.npmjs.com/package/@whitewall-os/sdk)
 
-> Part of [**Whitewall OS**](https://github.com/hihi-yessir/Verified-Agent-Hub) — on-chain identity and access control for AI agents.
+> Part of [**Whitewall OS**](https://github.com/hihi-yessir/whitewall-os) — on-chain identity and access control for AI agents.
 
 </div>
 
